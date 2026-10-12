@@ -21,6 +21,14 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tracing = "0.1"
 
+# The ML stays fast in `tauri dev`: whisper.cpp's CMake build follows this opt-level,
+# and earshot's network is pure Rust.
+[profile.dev.package.whisper-rs-sys]
+opt-level = 3
+
+[profile.dev.package.earshot]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = true

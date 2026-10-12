@@ -1,5 +1,9 @@
-//! Speech-to-text (whisper.cpp via `whisper-rs`, Metal) and post-meeting
-//! speaker diarization (sherpa-onnx). Wired up in milestones 2 and 4.
+//! Speech-to-text (whisper.cpp via `whisper-rs`, Metal). Post-meeting speaker
+//! diarization (sherpa-onnx) lands here in milestone 5.
+
+mod whisper;
+
+pub use whisper::{WhisperModel, WhisperTranscriber};
 
 use murmur_audio::SpeechChunk;
 use murmur_core::Segment;
@@ -14,4 +18,54 @@ pub enum SttError {
 
 pub trait Transcriber: Send {
     fn transcribe(&mut self, chunk: &SpeechChunk) -> Result<Vec<Segment>, SttError>;
+}
+
+/// Whisper invents text on silence and noise, mostly phrases from its YouTube
+/// training data. Drops those and non-speech tags like `[BLANK_AUDIO]` or `(music)`.
+pub fn is_hallucination(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return true;
+    }
+    let bracketed = (t.starts_with('[') && t.ends_with(']')) || (t.starts_with('(') && t.ends_with(')'));
+    if bracketed || t.chars().all(|c| !c.is_alphanumeric()) {
+        return true;
+    }
+    let lower = t.to_lowercase();
+    const KNOWN: [&str; 6] = [
+        "thanks for watching",
+        "thank you for watching",
+        "please subscribe",
+        "subtítulos realizados por",
+        "amara.org",
+        "gracias por ver el video",
+    ];
+    KNOWN.iter().any(|k| lower.contains(k))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_hallucination;
+
+    #[test]
+    fn filters_known_hallucinations_and_tags() {
+        for t in [
+            "",
+            "  ",
+            "[BLANK_AUDIO]",
+            "(music)",
+            "...",
+            "Thanks for watching!",
+            "Subtítulos realizados por la comunidad de Amara.org",
+        ] {
+            assert!(is_hallucination(t), "{t:?}");
+        }
+    }
+
+    #[test]
+    fn keeps_real_speech() {
+        for t in ["Thank you.", "Let's ship it on Friday.", "¿Quién toma la tarea?"] {
+            assert!(!is_hallucination(t), "{t:?}");
+        }
+    }
 }

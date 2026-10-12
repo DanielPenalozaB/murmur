@@ -7,6 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+earshot = "1.2.2"
 hound = "3.5.1"
 murmur-core.workspace = true
 serde.workspace = true

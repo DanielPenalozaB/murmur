@@ -13,7 +13,7 @@ user's own API key) only when the user opts in for that session.
 │   (Core Audio process tap)        │ 16 kHz mono f32 on stdout
 └─────────────────────────┼─────────┘
                           ▼
-        murmur-audio: 100 ms frames per channel → WAV tracks + Silero VAD
+        murmur-audio: 100 ms frames per channel → WAV tracks + earshot VAD
                           │  SpeechChunk { channel, start_ms, samples }
                           ▼
         murmur-stt: whisper.cpp (whisper-rs, Metal) worker thread
@@ -67,7 +67,7 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 | System audio | Swift helper, Core Audio process taps (macOS 14.4+) |
 | Resampling | AVAudioConverter (in the helper) |
 | WAV files | `hound` |
-| VAD | Silero VAD (ONNX via `ort`) |
+| VAD | `earshot` (pure Rust, no ONNX runtime); chunks cut after 600 ms silence, max 15 s |
 | STT | `whisper-rs` (whisper.cpp, Metal); default model large-v3-turbo q5 |
 | Diarization | `sherpa-rs` (sherpa-onnx segmentation + speaker embeddings) |
 | HTTP / streaming | `reqwest` + SSE parsing for Ollama, Anthropic, Gemini |
@@ -84,8 +84,8 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 
 ## Milestones
 
-1. **Capture:** mic + system audio → two WAV files, with start/pause/stop. Permissions flow.
-2. **Live transcript:** VAD → whisper → segments streamed to the UI. Typed IPC.
+1. **Capture:** mic + system audio → two WAV files, with start/pause/stop. ✅ (in-app permissions screen still to do)
+2. **Live transcript:** VAD → whisper → segments streamed to the UI. ✅ (typed IPC via tauri-specta deferred)
 3. **Library:** folders, sessions, SQLite index, Markdown/TXT export, notes editor.
 4. **Intelligence:** Ask panel (streaming answers with timestamp citations), post-meeting summary, provider settings + Keychain.
 5. **Speakers:** post-meeting diarization, rename speakers, voiceprints.

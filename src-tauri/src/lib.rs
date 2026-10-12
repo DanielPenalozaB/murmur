@@ -29,6 +29,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(recording::RecordingState::default())
+        .setup(|app| {
+            recording::preload_model(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             app_info,
             recording::start_recording,

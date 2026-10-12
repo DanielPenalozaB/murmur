@@ -11,3 +11,7 @@ murmur-core.workspace = true
 murmur-audio.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+whisper-rs = { version = "0.16.0", features = ["metal"] }
+
+[dev-dependencies]
+hound = "3.5.1"

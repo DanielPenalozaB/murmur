@@ -6,9 +6,11 @@
 
 mod helper;
 mod recorder;
+mod vad;
 
 pub use helper::HelperProcess;
 pub use recorder::{Recorder, RecorderStatus, Recording, TrackFile};
+pub use vad::{Segmenter, SegmenterConfig, VoiceScorer};
 
 use murmur_core::Channel;
 

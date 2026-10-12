@@ -12,13 +12,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
     let dir = PathBuf::from(args.next().unwrap_or_else(|| "/tmp/murmur-test".into()));
     let seconds: u64 = args.next().map_or(Ok(5), |s| s.parse())?;
-    let helper = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../native/audiocap/.build/release/audiocap");
+    let helper =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../native/audiocap/.build/release/audiocap");
 
-    let recorder = Recorder::start(&helper, &dir)?;
+    let recorder = Recorder::start(&helper, &dir, None)?;
     for _ in 0..seconds * 2 {
         std::thread::sleep(Duration::from_millis(500));
         let s = recorder.status();
-        println!("{:>6} ms  me {:.2}  them {:.2}", s.elapsed_ms, s.mic_level, s.system_level);
+        println!(
+            "{:>6} ms  me {:.2}  them {:.2}",
+            s.elapsed_ms, s.mic_level, s.system_level
+        );
     }
     let recording = recorder.stop()?;
     for t in recording.tracks {
