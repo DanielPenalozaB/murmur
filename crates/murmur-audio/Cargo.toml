@@ -1,0 +1,14 @@
+[package]
+name = "murmur-audio"
+description = "Mic + system audio capture and VAD chunking"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+hound = "3.5.1"
+murmur-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true

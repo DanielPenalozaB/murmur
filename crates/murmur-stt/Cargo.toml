@@ -1,0 +1,13 @@
+[package]
+name = "murmur-stt"
+description = "Speech-to-text and speaker diarization"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+murmur-core.workspace = true
+murmur-audio.workspace = true
+serde.workspace = true
+thiserror.workspace = true

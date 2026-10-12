@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Tokens from the Stitch screens (warm paper + terracotta). Dark values are a first pass. */
+@theme {
+  --color-canvas: #fdf6f3;
+  --color-sidebar: #f7efeb;
+  --color-surface: #ffffff;
+  --color-muted: #f3e9e4;
+  --color-ink: #1f1a17;
+  --color-ink-soft: #6b625c;
+  --color-line: #ece2dc;
+  --color-accent: #8a3b24;
+  --color-local: #2f6b4f;
+  --font-serif: "Newsreader", ui-serif, Georgia, serif;
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #151210;
+    --color-sidebar: #1c1815;
+    --color-surface: #221d1a;
+    --color-muted: #2a2420;
+    --color-ink: #f2ebe6;
+    --color-ink-soft: #a89e97;
+    --color-line: #332c27;
+    --color-accent: #d97a5b;
+    --color-local: #5fbf8f;
+  }
+}
+
+body {
+  @apply bg-canvas text-ink font-sans antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@layer components {
+  .btn-primary {
+    @apply rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply rounded-lg border border-line px-4 py-2 text-sm hover:bg-muted;
+  }
+}

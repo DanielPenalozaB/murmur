@@ -1,0 +1,30 @@
+[package]
+name = "murmur"
+description = "Local-first meeting transcription and notes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+# The `_lib` suffix avoids a name clash between the lib and bin targets on Windows.
+name = "murmur_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+murmur-core.workspace = true
+murmur-audio.workspace = true
+murmur-stt.workspace = true
+murmur-llm.workspace = true
+murmur-store.workspace = true
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }

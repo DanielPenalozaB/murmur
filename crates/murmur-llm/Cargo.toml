@@ -1,0 +1,12 @@
+[package]
+name = "murmur-llm"
+description = "LLM providers (Ollama, Anthropic, Gemini) and prompt building"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+murmur-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
