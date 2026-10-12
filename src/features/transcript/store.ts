@@ -1,21 +1,26 @@
 import { create } from "zustand";
-import type { Segment, TranscriptEvent } from "../../lib/ipc";
+import type { Segment, SessionRecord, TranscriptEvent } from "../../lib/ipc";
 
 type TranscriptState = {
+  title: string;
   segments: Segment[];
   /** True between Stop and the backend's `finished` event. */
   finishing: boolean;
+  /** The saved session, once the file is written. */
+  saved: SessionRecord | null;
   error: string | null;
-  reset: () => void;
+  begin: (title: string) => void;
   setFinishing: (finishing: boolean) => void;
   handle: (event: TranscriptEvent) => void;
 };
 
 export const useTranscript = create<TranscriptState>((set) => ({
+  title: "",
   segments: [],
   finishing: false,
+  saved: null,
   error: null,
-  reset: () => set({ segments: [], finishing: false, error: null }),
+  begin: (title) => set({ title, segments: [], finishing: false, saved: null, error: null }),
   setFinishing: (finishing) => set({ finishing }),
   handle: (event) => {
     switch (event.kind) {
@@ -26,7 +31,7 @@ export const useTranscript = create<TranscriptState>((set) => ({
         set({ error: event.message });
         break;
       case "finished":
-        set({ finishing: false });
+        set({ finishing: false, saved: event.session });
         break;
     }
   },

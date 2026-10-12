@@ -86,7 +86,7 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 
 1. **Capture:** mic + system audio → two WAV files, with start/pause/stop. ✅ (in-app permissions screen still to do)
 2. **Live transcript:** VAD → whisper → segments streamed to the UI. ✅ (typed IPC via tauri-specta deferred)
-3. **Library:** folders, sessions, SQLite index, Markdown/TXT export, notes editor.
+3. **Library:** folders, sessions, SQLite index (FTS5), Markdown/TXT export. ✅ (notes editor moves to milestone 4 with AI notes; re-indexing files edited outside the app still to do)
 4. **Intelligence:** Ask panel (streaming answers with timestamp citations), post-meeting summary, provider settings + Keychain.
 5. **Speakers:** post-meeting diarization, rename speakers, voiceprints.
 6. **Polish:** meeting auto-detect, menu-bar recorder, signing + notarization, auto-update.

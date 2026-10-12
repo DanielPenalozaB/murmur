@@ -1,32 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
+import { FolderView } from "./features/library/FolderView";
+import { SearchView } from "./features/library/SearchView";
+import { SessionView } from "./features/library/SessionView";
+import { Sidebar } from "./features/library/Sidebar";
 import { RecorderBar } from "./features/recorder/RecorderBar";
 import { useRecorder } from "./features/recorder/useRecorder";
 import { TranscriptView } from "./features/transcript/TranscriptView";
-import { ipc } from "./lib/ipc";
+import { useNav } from "./lib/nav";
 
 export default function App() {
-  const info = useQuery({ queryKey: ["app-info"], queryFn: ipc.appInfo });
+  const view = useNav((s) => s.view);
   const { status } = useRecorder();
+  const recording = status !== null;
 
   return (
     <div className="grid h-screen grid-cols-[260px_1fr]">
-      {/* Leave room for the macOS traffic lights (titleBarStyle: Overlay). */}
-      <aside
-        className="flex flex-col border-r border-line bg-sidebar px-3 pt-12"
-        data-tauri-drag-region
-      >
-        <h1 className="font-serif text-xl">Murmur</h1>
-        <p className="mt-6 text-xs uppercase tracking-wide text-ink-soft">Folders</p>
-        {info.data && (
-          <p className="mt-auto pb-4 text-xs text-ink-soft">
-            v{info.data.version} ·{" "}
-            <span className={info.data.local ? "text-local" : "text-accent"}>{info.data.llm}</span>
-          </p>
-        )}
-      </aside>
+      <Sidebar recording={recording} />
       <main className="flex min-h-0 flex-col">
-        <RecorderBar />
-        <TranscriptView recording={status !== null} />
+        {view.kind === "live" && (
+          <>
+            <RecorderBar />
+            <TranscriptView recording={recording} />
+          </>
+        )}
+        {view.kind === "folder" && <FolderView folder={view.folder} />}
+        {view.kind === "session" && <SessionView id={view.id} />}
+        {view.kind === "search" && <SearchView query={view.query} />}
       </main>
     </div>
   );

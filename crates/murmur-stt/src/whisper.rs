@@ -34,11 +34,7 @@ impl WhisperModel {
             .ctx
             .create_state()
             .map_err(|e| SttError::Inference(e.to_string()))?;
-        Ok(WhisperTranscriber {
-            _model: self.clone(),
-            state,
-            language,
-        })
+        Ok(WhisperTranscriber { _model: self.clone(), state, language, prompt: None })
     }
 }
 
@@ -46,6 +42,15 @@ pub struct WhisperTranscriber {
     _model: Arc<WhisperModel>,
     state: WhisperState,
     language: Option<String>,
+    prompt: Option<String>,
+}
+
+impl WhisperTranscriber {
+    /// Text Whisper treats as preceding speech. Useful to hint names, jargon, or that
+    /// the meeting mixes languages.
+    pub fn set_prompt(&mut self, prompt: Option<String>) {
+        self.prompt = prompt;
+    }
 }
 
 impl Transcriber for WhisperTranscriber {
@@ -61,6 +66,9 @@ impl Transcriber for WhisperTranscriber {
         params.set_print_realtime(false);
         params.set_print_special(false);
         params.set_print_timestamps(false);
+        if let Some(prompt) = &self.prompt {
+            params.set_initial_prompt(prompt);
+        }
 
         // whisper.cpp skips input shorter than 1 s, so pad short chunks with silence.
         let min = SAMPLE_RATE as usize + SAMPLE_RATE as usize / 10;

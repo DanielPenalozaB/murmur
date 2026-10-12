@@ -2,25 +2,35 @@ use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 use murmur_audio::{Recorder, RecorderStatus, Recording, SpeechChunk};
-use murmur_core::Segment;
+use murmur_core::{ExportFormat, Segment, Session};
+use murmur_store::SessionRecord;
 use murmur_stt::{Transcriber, WhisperModel};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
+use crate::library::LibraryState;
+use crate::settings::{self, SettingsState};
+
 const WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 
 #[derive(Default)]
 pub struct RecordingState {
-    recorder: Mutex<Option<Recorder>>,
+    active: Mutex<Option<ActiveSession>>,
     starting: AtomicBool,
-    /// Loaded on the first recording and kept for the app's lifetime.
+    /// Loaded at launch and kept for the app's lifetime.
     model: Mutex<Option<Arc<WhisperModel>>>,
+}
+
+struct ActiveSession {
+    recorder: Recorder,
+    /// Sends the final duration to the transcription worker once recording stops.
+    duration_tx: Sender<u64>,
 }
 
 /// Streamed to the UI over the channel passed to `start_recording`.
@@ -33,8 +43,10 @@ pub enum TranscriptEvent {
     Error {
         message: String,
     },
-    /// All audio up to Stop has been transcribed.
-    Finished,
+    /// Everything is transcribed and the session file is written and indexed.
+    Finished {
+        session: Option<SessionRecord>,
+    },
 }
 
 /// The `audiocap` sidecar sits next to the app binary (Tauri copies `externalBin` there).
@@ -64,7 +76,7 @@ fn load_model(app: &AppHandle) -> Result<Arc<WhisperModel>, String> {
 /// Loads Whisper in the background at launch so the first Start is instant.
 pub fn preload_model(app: &AppHandle) {
     let app = app.clone();
-    std::thread::spawn(move || {
+    thread::spawn(move || {
         if let Err(e) = load_model(&app) {
             tracing::warn!("model preload failed: {e}");
         }
@@ -74,12 +86,19 @@ pub fn preload_model(app: &AppHandle) {
 /// Async so the slow parts (model load, helper startup) run off the main thread and
 /// the window stays responsive.
 #[tauri::command]
-pub async fn start_recording(app: AppHandle, on_event: Channel<TranscriptEvent>) -> Result<(), String> {
+pub async fn start_recording(
+    app: AppHandle,
+    title: String,
+    folder: String,
+    format: ExportFormat,
+    on_event: Channel<TranscriptEvent>,
+) -> Result<(), String> {
+    murmur_store::validate_folder(&folder).map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<RecordingState>();
         // Guards against a second click while this start is still in progress. The
-        // recorder mutex is only held briefly, so status polling never blocks.
-        if state.recorder.lock().unwrap().is_some()
+        // session mutex is only held briefly, so status polling never blocks.
+        if state.active.lock().unwrap().is_some()
             || state
                 .starting
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -89,18 +108,46 @@ pub async fn start_recording(app: AppHandle, on_event: Channel<TranscriptEvent>)
         }
         let result = (|| {
             let transcriber = load_model(&app)?.transcriber(None).map_err(|e| e.to_string())?;
-            let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+            let now = chrono::Local::now();
+            let session = Session {
+                id: now.format("%Y-%m-%d_%H-%M-%S").to_string(),
+                title: if title.trim().is_empty() {
+                    "Meeting".into()
+                } else {
+                    title.trim().to_string()
+                },
+                folder,
+                started_at: now.to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+                duration_ms: 0,
+                format,
+            };
+            remember_choices(&app, &session);
+
             let dir = app
                 .path()
                 .app_data_dir()
                 .map_err(|e| e.to_string())?
                 .join("sessions")
-                .join(stamp);
+                .join(&session.id);
             let (chunks_tx, chunks_rx) = mpsc::channel();
             let recorder =
                 Recorder::start(&helper_path()?, &dir, Some(chunks_tx)).map_err(|e| e.to_string())?;
-            spawn_transcription(transcriber, chunks_rx, dir.join("transcript.jsonl"), on_event);
-            *state.recorder.lock().unwrap() = Some(recorder);
+            let (duration_tx, duration_rx) = mpsc::channel();
+            spawn_transcription(
+                app.clone(),
+                Worker {
+                    session,
+                    transcriber,
+                    chunks: chunks_rx,
+                    duration: duration_rx,
+                    dir,
+                    events: on_event,
+                },
+            );
+            *state.active.lock().unwrap() = Some(ActiveSession {
+                recorder,
+                duration_tx,
+            });
             Ok(())
         })();
         state.starting.store(false, Ordering::Release);
@@ -110,34 +157,83 @@ pub async fn start_recording(app: AppHandle, on_event: Channel<TranscriptEvent>)
     .map_err(|e| e.to_string())?
 }
 
-/// Transcribes chunks in arrival order until the recorder drops its senders on stop,
-/// then reports `Finished`. Segments are appended to `transcript.jsonl` as they come.
-fn spawn_transcription(
-    mut transcriber: impl Transcriber + 'static,
+/// Preselects this folder and format in the next New session dialog.
+fn remember_choices(app: &AppHandle, session: &Session) {
+    let state = app.state::<SettingsState>();
+    let mut s = state.0.lock().unwrap();
+    s.last_folder = session.folder.clone();
+    s.default_format = session.format;
+    if let Err(e) = settings::save(app, &s) {
+        tracing::warn!("save settings: {e}");
+    }
+}
+
+struct Worker<T> {
+    session: Session,
+    transcriber: T,
     chunks: Receiver<SpeechChunk>,
-    log_path: PathBuf,
+    duration: Receiver<u64>,
+    /// Session audio folder; `transcript.jsonl` is appended here as segments arrive.
+    dir: PathBuf,
     events: Channel<TranscriptEvent>,
-) {
+}
+
+/// Transcribes chunks in arrival order until the recorder drops its senders on stop,
+/// then writes the session file into the vault, indexes it and reports `Finished`.
+fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>) {
     thread::spawn(move || {
-        for chunk in chunks {
-            match transcriber.transcribe(&chunk) {
-                Ok(segments) => {
-                    for segment in segments {
+        let log_path = w.dir.join("transcript.jsonl");
+        let mut segments = Vec::new();
+        for chunk in &w.chunks {
+            match w.transcriber.transcribe(&chunk) {
+                Ok(new) => {
+                    for segment in new {
                         if let Err(e) = append_jsonl(&log_path, &segment) {
                             tracing::error!("write transcript: {e}");
                         }
-                        let _ = events.send(TranscriptEvent::Segment { segment });
+                        let _ = w.events.send(TranscriptEvent::Segment {
+                            segment: segment.clone(),
+                        });
+                        segments.push(segment);
                     }
                 }
                 Err(e) => {
-                    let _ = events.send(TranscriptEvent::Error {
+                    let _ = w.events.send(TranscriptEvent::Error {
                         message: e.to_string(),
                     });
                 }
             }
         }
-        let _ = events.send(TranscriptEvent::Finished);
+
+        w.session.duration_ms = w
+            .duration
+            .recv()
+            .unwrap_or_else(|_| segments.iter().map(|s| s.end).max().unwrap_or(0));
+        let saved = save_session(&app, &w.session, &segments);
+        if let Err(message) = &saved {
+            let _ = w.events.send(TranscriptEvent::Error {
+                message: message.clone(),
+            });
+        }
+        let _ = w.events.send(TranscriptEvent::Finished { session: saved.ok() });
     });
+}
+
+fn save_session(app: &AppHandle, session: &Session, segments: &[Segment]) -> Result<SessionRecord, String> {
+    let vault = app.state::<SettingsState>().0.lock().unwrap().vault_path.clone();
+    let path = murmur_store::write_session_file(&vault, session, segments)
+        .map_err(|e| format!("could not write the session file: {e}"))?;
+    let file_path = path.to_string_lossy().into_owned();
+    app.state::<LibraryState>()
+        .0
+        .lock()
+        .unwrap()
+        .save_session(session, segments, &file_path)
+        .map_err(|e| format!("could not index the session: {e}"))?;
+    Ok(SessionRecord {
+        session: session.clone(),
+        file_path,
+    })
 }
 
 fn append_jsonl(path: &Path, segment: &Segment) -> std::io::Result<()> {
@@ -148,17 +244,27 @@ fn append_jsonl(path: &Path, segment: &Segment) -> std::io::Result<()> {
 
 #[tauri::command]
 pub fn set_recording_paused(paused: bool, state: State<RecordingState>) -> Result<(), String> {
-    let slot = state.recorder.lock().unwrap();
-    let recorder = slot.as_ref().ok_or("not recording")?;
-    recorder.set_paused(paused);
+    let active = state.active.lock().unwrap();
+    active
+        .as_ref()
+        .ok_or("not recording")?
+        .recorder
+        .set_paused(paused);
     Ok(())
 }
 
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle) -> Result<Recording, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let recorder = app.state::<RecordingState>().recorder.lock().unwrap().take();
-        recorder.ok_or("not recording")?.stop().map_err(|e| e.to_string())
+        let active = app.state::<RecordingState>().active.lock().unwrap().take();
+        let ActiveSession {
+            recorder,
+            duration_tx,
+        } = active.ok_or("not recording")?;
+        let recording = recorder.stop().map_err(|e| e.to_string())?;
+        let duration = recording.tracks.iter().map(|t| t.duration_ms).max().unwrap_or(0);
+        let _ = duration_tx.send(duration);
+        Ok(recording)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -166,5 +272,5 @@ pub async fn stop_recording(app: AppHandle) -> Result<Recording, String> {
 
 #[tauri::command]
 pub fn recording_status(state: State<RecordingState>) -> Option<RecorderStatus> {
-    state.recorder.lock().unwrap().as_ref().map(Recorder::status)
+    state.active.lock().unwrap().as_ref().map(|a| a.recorder.status())
 }

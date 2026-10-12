@@ -5,10 +5,12 @@
 //! writes 16 kHz mono f32 PCM to stdout. See ADR-002.
 
 mod helper;
+mod normalize;
 mod recorder;
 mod vad;
 
 pub use helper::HelperProcess;
+pub use normalize::normalize_wav;
 pub use recorder::{Recorder, RecorderStatus, Recording, TrackFile};
 pub use vad::{Segmenter, SegmenterConfig, VoiceScorer};
 

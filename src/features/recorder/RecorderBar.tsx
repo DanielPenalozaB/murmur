@@ -1,4 +1,6 @@
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { useState } from "react";
+import { useTranscript } from "../transcript/store";
+import { StartDialog } from "./StartDialog";
 import { useRecorder } from "./useRecorder";
 
 function formatElapsed(ms: number) {
@@ -36,7 +38,9 @@ function Meter({
 }
 
 export function RecorderBar() {
-  const { status, start, togglePause, stop, lastRecording, starting, busy, error } = useRecorder();
+  const { status, start, togglePause, stop, starting, busy, error } = useRecorder();
+  const title = useTranscript((s) => s.title);
+  const [dialogOpen, setDialogOpen] = useState(false);
   const recording = status !== null;
   const paused = status?.paused ?? false;
   // Each helper delivers a frame every 100 ms; nothing after 3 s means capture is blocked.
@@ -65,6 +69,10 @@ export function RecorderBar() {
           )}
         </div>
 
+        {recording && title && (
+          <span className="max-w-64 truncate font-serif text-lg">{title}</span>
+        )}
+
         <div className="flex flex-col gap-1.5">
           <Meter
             label="Me"
@@ -81,17 +89,13 @@ export function RecorderBar() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          {!recording && lastRecording && (
+          {!recording ? (
             <button
               type="button"
-              className="mr-2 text-sm text-accent underline-offset-2 hover:underline"
-              onClick={() => revealItemInDir(lastRecording.tracks[0].path)}
+              className="btn-primary"
+              onClick={() => setDialogOpen(true)}
+              disabled={busy}
             >
-              Reveal recording
-            </button>
-          )}
-          {!recording ? (
-            <button type="button" className="btn-primary" onClick={start} disabled={busy}>
               {starting ? "Loading model…" : "Start recording"}
             </button>
           ) : (
@@ -111,6 +115,15 @@ export function RecorderBar() {
         </div>
       </div>
       {error && <p className="mt-3 text-sm text-accent">{error}</p>}
+      {dialogOpen && (
+        <StartDialog
+          onCancel={() => setDialogOpen(false)}
+          onStart={(session) => {
+            setDialogOpen(false);
+            start(session);
+          }}
+        />
+      )}
       {silent.length > 0 && (
         <p className="mt-3 text-sm text-accent">
           No {silent.join(" or ")} received yet. Check System Settings → Privacy &amp; Security

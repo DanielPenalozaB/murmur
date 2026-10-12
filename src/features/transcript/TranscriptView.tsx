@@ -1,21 +1,22 @@
-import { useEffect, useMemo, useRef } from "react";
-import { formatTimestamp, groupIntoTurns } from "./group";
+import { useEffect, useRef } from "react";
+import { ipc } from "../../lib/ipc";
+import { useNav } from "../../lib/nav";
 import { useTranscript } from "./store";
-
-const LABEL = { mic: "Me", system: "Them" } as const;
+import { TranscriptTurns } from "./TranscriptTurns";
 
 export function TranscriptView({ recording }: { recording: boolean }) {
-  const { segments, finishing, error } = useTranscript();
-  const turns = useMemo(() => groupIntoTurns(segments), [segments]);
+  const { segments, finishing, saved, error } = useTranscript();
+  const go = useNav((s) => s.go);
   const bottom = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
   // Follow new lines unless the user scrolled up to read.
   useEffect(() => {
-    if (turns.length > 0 && stickToBottom.current) bottom.current?.scrollIntoView({ block: "end" });
-  }, [turns]);
+    if (segments.length > 0 && stickToBottom.current)
+      bottom.current?.scrollIntoView({ block: "end" });
+  }, [segments]);
 
-  if (turns.length === 0) {
+  if (segments.length === 0 && !saved && !finishing) {
     return (
       <div className="flex flex-1 items-center justify-center text-ink-soft">
         {recording
@@ -34,23 +35,38 @@ export function TranscriptView({ recording }: { recording: boolean }) {
       }}
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-5">
-        {turns.map((turn) => (
-          <div key={`${turn.channel}-${turn.start}`} className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 text-xs">
-              <span
-                className={`rounded px-1.5 py-0.5 font-medium ${
-                  turn.channel === "mic" ? "bg-accent/10 text-accent" : "bg-muted text-ink"
-                }`}
-              >
-                {LABEL[turn.channel]}
-              </span>
-              <span className="tabular-nums text-ink-soft">{formatTimestamp(turn.start)}</span>
-            </div>
-            <p className="leading-relaxed">{turn.texts.join(" ")}</p>
-          </div>
-        ))}
+        <TranscriptTurns segments={segments} />
         {finishing && <p className="text-sm text-ink-soft">Finishing transcript…</p>}
-        {error && <p className="text-sm text-accent">Transcription error: {error}</p>}
+        {error && <p className="text-sm text-accent">{error}</p>}
+        {saved && !recording && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface p-4 text-sm">
+            <span className="text-ink-soft">Saved to</span>
+            <span className="truncate font-medium">{saved.file_path.split("/").pop()}</span>
+            <div className="ml-auto flex gap-2">
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => ipc.openSessionItem(saved.id, "open_file")}
+              >
+                Open file
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => ipc.openSessionItem(saved.id, "reveal_file")}
+              >
+                Reveal in Finder
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => go({ kind: "session", id: saved.id })}
+              >
+                View in library
+              </button>
+            </div>
+          </div>
+        )}
         <div ref={bottom} />
       </div>
     </div>

@@ -139,7 +139,8 @@ impl Recorder {
         }
     }
 
-    /// Stops both helpers, flushes open speech chunks and finalizes the WAV files.
+    /// Stops both helpers, flushes open speech chunks, finalizes the WAV files and
+    /// normalizes their volume.
     pub fn stop(mut self) -> Result<Recording, AudioError> {
         // Freeze both tracks at the same instant, then shut the helpers down in parallel.
         self.set_paused(true);
@@ -151,6 +152,7 @@ impl Recorder {
             track.helper.stop();
             // The helper's stdout closed, so the frame channel closes and the writer ends.
             track.writer.join().expect("writer thread panicked")?;
+            crate::normalize_wav(&track.path)?;
             files.push(TrackFile {
                 channel: track.channel,
                 path: track.path,

@@ -35,15 +35,6 @@ pub struct Segment {
     pub text: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SessionState {
-    Recording,
-    Paused,
-    Processing,
-    Done,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ExportFormat {
@@ -52,14 +43,27 @@ pub enum ExportFormat {
     Txt,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A recorded meeting. Audio lives in the app data folder under `id`; the readable
+/// transcript file lives in the vault at `<folder>/<file name>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Session {
+    /// Also the audio folder name, e.g. `2026-10-12_17-37-04`.
     pub id: String,
     pub title: String,
-    /// Folder path relative to the vault root, e.g. `Work/1-1s`.
+    /// Folder path relative to the vault root, e.g. `Work/1-1s`. Empty for the root.
     pub folder: String,
-    /// RFC 3339 timestamp.
+    /// RFC 3339 local timestamp.
     pub started_at: String,
-    pub state: SessionState,
-    pub speakers: Vec<Speaker>,
+    pub duration_ms: Millis,
+    pub format: ExportFormat,
+}
+
+impl Channel {
+    /// Default speaker label until diarization names people.
+    pub fn label(self) -> &'static str {
+        match self {
+            Channel::Mic => "Me",
+            Channel::System => "Them",
+        }
+    }
 }
