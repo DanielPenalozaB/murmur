@@ -1,4 +1,5 @@
 //! Runs a 16 kHz mono WAV through the VAD segmenter and Whisper, like a live session.
+//! MURMUR_DRAFTS=1 also prints the base-model drafts the app shows while people talk.
 //!
 //!   cargo run --release -p murmur-stt --example transcribe -- recording.wav [en,es]
 
@@ -27,10 +28,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let samples: Vec<f32> = hound::WavReader::open(&wav)?
         .into_samples::<f32>()
         .collect::<Result<_, _>>()?;
+    let mut drafter = match std::env::var_os("MURMUR_DRAFTS") {
+        Some(_) => Some(MeetingTranscriber::new(&detector, Some(&detector), &languages)?),
+        None => None,
+    };
     let mut segmenter = Segmenter::new(Channel::System);
     let mut chunks = Vec::new();
+    let mut since_draft = 0;
     for frame in samples.chunks(1_600) {
-        chunks.extend(segmenter.push(frame));
+        let done = segmenter.push(frame);
+        if !done.is_empty() {
+            since_draft = 0;
+        }
+        chunks.extend(done);
+        since_draft += frame.len() as u64;
+        if let Some(drafter) = &mut drafter
+            && since_draft * 1000 / 16_000 >= murmur_audio::DRAFT_EVERY_MS
+            && let Some(open) = segmenter.open_chunk(1_000)
+        {
+            since_draft = 0;
+            let t = Instant::now();
+            let text: Vec<String> = drafter.transcribe(&open)?.into_iter().map(|s| s.text).collect();
+            let now_ms = open.start_ms + open.samples.len() as u64 * 1000 / 16_000;
+            println!(
+                "  draft at {now_ms:>6} ms ({:>3} ms): {}",
+                t.elapsed().as_millis(),
+                text.join(" ")
+            );
+        }
     }
     chunks.extend(segmenter.flush());
 

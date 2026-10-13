@@ -19,7 +19,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (start, end): (usize, usize) = (start.parse()?, end.parse()?);
     let models =
         PathBuf::from(std::env::var("HOME")?).join("Library/Application Support/dev.murmur.app/models");
-    let model = WhisperModel::load(&models.join("ggml-large-v3-turbo-q5_0.bin"))?;
+    // MURMUR_MODEL=ggml-base.bin times the draft model instead.
+    let file = std::env::var("MURMUR_MODEL").unwrap_or_else(|_| "ggml-large-v3-turbo-q5_0.bin".into());
+    let model = WhisperModel::load(&models.join(file))?;
     let detector = WhisperModel::load(&models.join("ggml-base.bin"))?;
     let languages: Vec<String> = rest
         .first()
@@ -34,7 +36,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start_ms: start as u64,
         samples: samples[start * 16..end.min(samples.len() / 16) * 16].to_vec(),
     };
-    for s in t.transcribe(&chunk)? {
+    let started = std::time::Instant::now();
+    let segments = t.transcribe(&chunk)?;
+    eprintln!("({:?})", started.elapsed());
+    for s in segments {
         println!("[{:>6} ms] {}", s.start, s.text);
     }
     Ok(())

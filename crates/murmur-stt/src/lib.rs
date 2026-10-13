@@ -1,7 +1,8 @@
-//! Speech-to-text (whisper.cpp via `whisper-rs`, Metal). Post-meeting speaker
-//! diarization (sherpa-onnx) lands here in milestone 5.
+//! Speech-to-text (whisper.cpp via `whisper-rs`, Metal) and post-meeting speaker
+//! diarization (sherpa-onnx).
 
 mod language;
+pub mod speakers;
 mod whisper;
 
 pub use language::{LanguageDetector, MeetingTranscriber};

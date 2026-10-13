@@ -11,7 +11,7 @@ mod vad;
 
 pub use helper::HelperProcess;
 pub use normalize::normalize_wav;
-pub use recorder::{Recorder, RecorderStatus, Recording, TrackFile};
+pub use recorder::{ChunkSenders, DRAFT_EVERY_MS, Recorder, RecorderStatus, Recording, TrackFile};
 pub use vad::{Segmenter, SegmenterConfig, VoiceScorer};
 
 use murmur_core::Channel;

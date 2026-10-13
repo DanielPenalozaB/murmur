@@ -113,6 +113,19 @@ impl Segmenter {
         done
     }
 
+    /// A copy of the chunk still being spoken, for draft transcription. `None` between
+    /// utterances or while it's shorter than `min_ms`.
+    pub fn open_chunk(&self, min_ms: u64) -> Option<SpeechChunk> {
+        if !self.in_speech || self.chunk.len() < ms_to_samples(min_ms) {
+            return None;
+        }
+        Some(SpeechChunk {
+            channel: self.channel,
+            start_ms: self.chunk_start * 1000 / SAMPLE_RATE as u64,
+            samples: self.chunk.clone(),
+        })
+    }
+
     /// Emits the in-progress chunk, if any (call when recording stops).
     pub fn flush(&mut self) -> Option<SpeechChunk> {
         if !self.in_speech {
@@ -273,6 +286,20 @@ mod tests {
         assert!((1_200..=1_300).contains(&first_ms), "cut at {first_ms}");
         let rest = s.flush().expect("remaining speech");
         assert_eq!(rest.start_ms, first.start_ms + first_ms);
+    }
+
+    #[test]
+    fn exposes_the_open_chunk_for_drafts() {
+        let mut s = segmenter(SegmenterConfig::default());
+        s.push(&audio(500, false));
+        assert!(s.open_chunk(0).is_none(), "nobody is speaking");
+        s.push(&audio(1_200, true));
+        assert!(s.open_chunk(2_000).is_none(), "too short");
+        let open = s.open_chunk(1_000).expect("speech in progress");
+        let done = s.push(&audio(1_000, false));
+        // The draft and the final chunk line up, so the final can replace the draft.
+        assert_eq!(done[0].start_ms, open.start_ms);
+        assert!(done[0].samples.starts_with(&open.samples));
     }
 
     #[test]

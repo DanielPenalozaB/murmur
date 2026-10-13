@@ -80,6 +80,8 @@ export type SearchHit = {
 
 export type TranscriptEvent =
   | { kind: "segment"; segment: Segment }
+  | { kind: "draft"; channel: Channel; start: number; text: string }
+  | { kind: "draft_done"; channel: Channel; until: number }
   | { kind: "error"; message: string }
   | { kind: "finished"; session: SessionRecord | null };
 

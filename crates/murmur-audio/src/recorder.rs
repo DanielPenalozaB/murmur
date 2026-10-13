@@ -13,8 +13,8 @@ use serde::Serialize;
 use crate::{AudioError, HelperProcess, SAMPLE_RATE, Segmenter, SpeechChunk};
 
 /// Records the mic and system audio into `<dir>/mic.wav` and `<dir>/system.wav`.
-/// Paused audio is discarded, so file time equals session time. When given a chunk
-/// sender, each track also runs a [`Segmenter`] and sends speech chunks to it.
+/// Paused audio is discarded, so file time equals session time. When given
+/// [`ChunkSenders`], each track also runs a [`Segmenter`] and sends speech chunks.
 pub struct Recorder {
     dir: PathBuf,
     started: Instant,
@@ -59,6 +59,17 @@ pub struct RecorderStatus {
     pub system_receiving: bool,
 }
 
+/// Where speech goes for transcription.
+#[derive(Clone)]
+pub struct ChunkSenders {
+    /// Finished utterances, cut at pauses.
+    pub finals: Sender<SpeechChunk>,
+    /// While someone is still talking, the utterance so far every [`DRAFT_EVERY_MS`].
+    pub drafts: Option<Sender<SpeechChunk>>,
+}
+
+pub const DRAFT_EVERY_MS: u64 = 1_500;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Recording {
     pub dir: PathBuf,
@@ -73,7 +84,7 @@ pub struct TrackFile {
 }
 
 impl Recorder {
-    pub fn start(helper: &Path, dir: &Path, chunks: Option<Sender<SpeechChunk>>) -> Result<Self, AudioError> {
+    pub fn start(helper: &Path, dir: &Path, chunks: Option<ChunkSenders>) -> Result<Self, AudioError> {
         std::fs::create_dir_all(dir)?;
         let paused = Arc::new(AtomicBool::new(false));
         let mut tracks = Vec::new();
@@ -87,7 +98,11 @@ impl Recorder {
                 wav: hound::WavWriter::create(&path, wav_spec())?,
                 paused: paused.clone(),
                 meters: meters.clone(),
-                vad: chunks.clone().map(|tx| (Segmenter::new(channel), tx)),
+                vad: chunks.clone().map(|senders| Vad {
+                    segmenter: Segmenter::new(channel),
+                    senders,
+                    since_draft: 0,
+                }),
             });
             tracks.push(Track {
                 channel,
@@ -171,7 +186,14 @@ struct TrackWriter {
     wav: hound::WavWriter<BufWriter<File>>,
     paused: Arc<AtomicBool>,
     meters: Arc<Meters>,
-    vad: Option<(Segmenter, Sender<SpeechChunk>)>,
+    vad: Option<Vad>,
+}
+
+struct Vad {
+    segmenter: Segmenter,
+    senders: ChunkSenders,
+    /// Samples recorded since the last draft was sent.
+    since_draft: u64,
 }
 
 fn spawn_writer(mut t: TrackWriter) -> JoinHandle<Result<(), hound::Error>> {
@@ -186,17 +208,28 @@ fn spawn_writer(mut t: TrackWriter) -> JoinHandle<Result<(), hound::Error>> {
                 t.wav.write_sample(sample)?;
             }
             t.meters.samples.fetch_add(frame.len() as u64, Ordering::Relaxed);
-            if let Some((segmenter, tx)) = &mut t.vad {
-                for chunk in segmenter.push(&frame) {
-                    let _ = tx.send(chunk);
+            if let Some(vad) = &mut t.vad {
+                for chunk in vad.segmenter.push(&frame) {
+                    let _ = vad.senders.finals.send(chunk);
+                    vad.since_draft = 0;
                 }
-                t.meters.speaking.store(segmenter.in_speech(), Ordering::Relaxed);
+                t.meters
+                    .speaking
+                    .store(vad.segmenter.in_speech(), Ordering::Relaxed);
+                vad.since_draft += frame.len() as u64;
+                if let Some(drafts) = &vad.senders.drafts
+                    && samples_to_ms(vad.since_draft) >= DRAFT_EVERY_MS
+                    && let Some(open) = vad.segmenter.open_chunk(1_000)
+                {
+                    let _ = drafts.send(open);
+                    vad.since_draft = 0;
+                }
             }
         }
-        if let Some((segmenter, tx)) = &mut t.vad
-            && let Some(chunk) = segmenter.flush()
+        if let Some(vad) = &mut t.vad
+            && let Some(chunk) = vad.segmenter.flush()
         {
-            let _ = tx.send(chunk);
+            let _ = vad.senders.finals.send(chunk);
         }
         t.wav.finalize()
     })

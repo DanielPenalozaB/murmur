@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use murmur_audio::Recorder;
+use murmur_audio::{ChunkSenders, Recorder};
 use murmur_stt::{Transcriber, WhisperModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +23,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let dir = std::env::temp_dir().join("murmur-live");
 
     let (tx, rx) = mpsc::channel();
-    let recorder = Recorder::start(&helper, &dir, Some(tx))?;
+    let recorder = Recorder::start(
+        &helper,
+        &dir,
+        Some(ChunkSenders {
+            finals: tx,
+            drafts: None,
+        }),
+    )?;
     let began = Instant::now();
     let worker = std::thread::spawn(move || {
         for chunk in rx {

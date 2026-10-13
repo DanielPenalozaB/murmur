@@ -6,7 +6,7 @@ import { useTranscript } from "./store";
 import { type Seek, TranscriptTurns } from "./TranscriptTurns";
 
 export function TranscriptView({ recording, seek }: { recording: boolean; seek: Seek | null }) {
-  const { segments, finishing, saved, error } = useTranscript();
+  const { segments, drafts, finishing, saved, error } = useTranscript();
   const notes = useNotes((s) => (saved ? s.jobs[saved.id] : undefined));
   const go = useNav((s) => s.go);
   const bottom = useRef<HTMLDivElement>(null);
@@ -14,11 +14,11 @@ export function TranscriptView({ recording, seek }: { recording: boolean; seek: 
 
   // Follow new lines unless the user scrolled up to read.
   useEffect(() => {
-    if (segments.length > 0 && stickToBottom.current)
+    if ((segments.length > 0 || drafts.length > 0) && stickToBottom.current)
       bottom.current?.scrollIntoView({ block: "end" });
-  }, [segments]);
+  }, [segments, drafts]);
 
-  if (segments.length === 0 && !saved && !finishing) {
+  if (segments.length === 0 && drafts.length === 0 && !saved && !finishing) {
     return (
       <div className="flex flex-1 items-center justify-center text-ink-soft">
         {recording
@@ -38,6 +38,19 @@ export function TranscriptView({ recording, seek }: { recording: boolean; seek: 
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-5">
         <TranscriptTurns segments={segments} seek={seek} />
+        {[...drafts]
+          .sort((a, b) => a.start - b.start)
+          .map((d) => (
+            <div key={d.channel} className="flex flex-col gap-1" aria-live="polite">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="rounded bg-muted px-1.5 py-0.5 font-medium text-ink-soft">
+                  {d.channel === "mic" ? "Me" : "Them"}
+                </span>
+                <span className="text-ink-soft">speaking…</span>
+              </div>
+              <p className="leading-relaxed text-ink-soft italic">{d.text}</p>
+            </div>
+          ))}
         {finishing && <p className="text-sm text-ink-soft">Finishing transcript…</p>}
         {error && <p className="text-sm text-accent">{error}</p>}
         {saved && !recording && (

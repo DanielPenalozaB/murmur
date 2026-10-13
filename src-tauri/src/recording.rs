@@ -1,13 +1,13 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use murmur_audio::{Recorder, RecorderStatus, Recording, SpeechChunk};
-use murmur_core::{ExportFormat, Segment, Session};
+use murmur_audio::{ChunkSenders, Recorder, RecorderStatus, Recording, SpeechChunk};
+use murmur_core::{Channel as AudioChannel, ExportFormat, Segment, Session};
 use murmur_store::SessionRecord;
 use murmur_stt::{MeetingTranscriber, Transcriber, WhisperModel};
 use serde::Serialize;
@@ -18,8 +18,9 @@ use crate::library::LibraryState;
 use crate::settings::{self, SettingsState};
 
 const WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
-/// Small and fast; only identifies languages in meetings that mix them.
-const LANGUAGE_MODEL: &str = "ggml-base.bin";
+/// Small and fast: draft text while someone is talking, and language ID in meetings
+/// that mix languages.
+const BASE_MODEL: &str = "ggml-base.bin";
 
 /// Each language is one more candidate for every check, so keep meetings to a few.
 const MAX_LANGUAGES: usize = 4;
@@ -30,8 +31,8 @@ pub struct RecordingState {
     starting: AtomicBool,
     /// Loaded at launch and kept for the app's lifetime.
     model: Mutex<Option<Arc<WhisperModel>>>,
-    /// Loaded the first time a meeting has two or more languages.
-    language_model: Mutex<Option<Arc<WhisperModel>>>,
+    /// Loaded at launch too; drafts and language ID share it.
+    base_model: Mutex<Option<Arc<WhisperModel>>>,
     /// The current (or last) recording's transcript so far, for Ask during a meeting.
     live: Arc<Mutex<Vec<Segment>>>,
 }
@@ -54,6 +55,18 @@ struct ActiveSession {
 pub enum TranscriptEvent {
     Segment {
         segment: Segment,
+    },
+    /// What's being said right now, from the fast model. Replaced by the final
+    /// segments once the speaker pauses.
+    Draft {
+        channel: AudioChannel,
+        start: u64,
+        text: String,
+    },
+    /// Final segments up to `until` (ms) are out; drafts starting before it are stale.
+    DraftDone {
+        channel: AudioChannel,
+        until: u64,
     },
     Error {
         message: String,
@@ -91,14 +104,18 @@ fn load_model(
     Ok(model)
 }
 
-fn transcriber(app: &AppHandle, languages: &[String]) -> Result<MeetingTranscriber, String> {
+/// The final transcriber (turbo) and the draft transcriber (base), both following the
+/// meeting's languages.
+fn transcribers(
+    app: &AppHandle,
+    languages: &[String],
+) -> Result<(MeetingTranscriber, MeetingTranscriber), String> {
     let state = app.state::<RecordingState>();
     let model = load_model(app, &state.model, WHISPER_MODEL)?;
-    let detector = match languages.len() {
-        0 | 1 => None,
-        _ => Some(load_model(app, &state.language_model, LANGUAGE_MODEL)?),
-    };
-    MeetingTranscriber::new(&model, detector.as_ref(), languages).map_err(|e| e.to_string())
+    let base = load_model(app, &state.base_model, BASE_MODEL)?;
+    let finals = MeetingTranscriber::new(&model, Some(&base), languages).map_err(|e| e.to_string())?;
+    let drafts = MeetingTranscriber::new(&base, Some(&base), languages).map_err(|e| e.to_string())?;
+    Ok((finals, drafts))
 }
 
 /// Loads the models in the background at launch so the first Start is instant.
@@ -106,8 +123,18 @@ pub fn preload_model(app: &AppHandle) {
     let app = app.clone();
     thread::spawn(move || {
         let languages = app.state::<SettingsState>().0.lock().unwrap().languages.clone();
-        if let Err(e) = transcriber(&app, &languages) {
-            tracing::warn!("model preload failed: {e}");
+        match transcribers(&app, &languages) {
+            // The first inference compiles GPU kernels (~2 s); do it now, not mid-meeting.
+            Ok((mut finals, mut drafts)) => {
+                let silence = SpeechChunk {
+                    channel: AudioChannel::Mic,
+                    start_ms: 0,
+                    samples: vec![0.0; murmur_audio::SAMPLE_RATE as usize],
+                };
+                let _ = drafts.transcribe(&silence);
+                let _ = finals.transcribe(&silence);
+            }
+            Err(e) => tracing::warn!("model preload failed: {e}"),
         }
     });
 }
@@ -154,7 +181,7 @@ pub async fn start_recording(
             return Err("a recording is already running".into());
         }
         let result = (|| {
-            let transcriber = transcriber(&app, &languages)?;
+            let (transcriber, drafter) = transcribers(&app, &languages)?;
             let now = chrono::Local::now();
             let session = Session {
                 id: now.format("%Y-%m-%d_%H-%M-%S").to_string(),
@@ -177,10 +204,17 @@ pub async fn start_recording(
                 .join("sessions")
                 .join(&session.id);
             let (chunks_tx, chunks_rx) = mpsc::channel();
+            let (drafts_tx, drafts_rx) = mpsc::channel();
+            let senders = ChunkSenders {
+                finals: chunks_tx,
+                drafts: Some(drafts_tx),
+            };
             let recorder =
-                Recorder::start(&helper_path()?, &dir, Some(chunks_tx)).map_err(|e| e.to_string())?;
+                Recorder::start(&helper_path()?, &dir, Some(senders)).map_err(|e| e.to_string())?;
             let (duration_tx, duration_rx) = mpsc::channel();
             state.live.lock().unwrap().clear();
+            let finalized = Arc::new(Finalized::default());
+            spawn_drafts(drafter, drafts_rx, finalized.clone(), on_event.clone());
             spawn_transcription(
                 app.clone(),
                 Worker {
@@ -189,6 +223,7 @@ pub async fn start_recording(
                     chunks: chunks_rx,
                     duration: duration_rx,
                     live: state.live.clone(),
+                    finalized,
                     dir,
                     events: on_event,
                 },
@@ -224,9 +259,76 @@ struct Worker<T> {
     chunks: Receiver<SpeechChunk>,
     duration: Receiver<u64>,
     live: Arc<Mutex<Vec<Segment>>>,
+    finalized: Arc<Finalized>,
     /// Session audio folder; `transcript.jsonl` is appended here as segments arrive.
     dir: PathBuf,
     events: Channel<TranscriptEvent>,
+}
+
+/// Per channel, where final transcription has reached (ms). Drafts of audio before
+/// that are stale.
+#[derive(Default)]
+struct Finalized([AtomicU64; 2]);
+
+impl Finalized {
+    fn slot(&self, channel: AudioChannel) -> &AtomicU64 {
+        &self.0[match channel {
+            AudioChannel::Mic => 0,
+            AudioChannel::System => 1,
+        }]
+    }
+
+    fn set(&self, channel: AudioChannel, until: u64) {
+        self.slot(channel).fetch_max(until, Ordering::Relaxed);
+    }
+
+    fn is_stale(&self, chunk: &SpeechChunk) -> bool {
+        chunk.start_ms < self.slot(chunk.channel).load(Ordering::Relaxed)
+    }
+}
+
+/// Transcribes in-progress speech with the fast model so text appears while people
+/// talk. Runs beside the final worker so drafts never delay final lines, and only
+/// drafts the newest audio per channel when it falls behind.
+fn spawn_drafts(
+    mut drafter: impl Transcriber + 'static,
+    drafts: Receiver<SpeechChunk>,
+    finalized: Arc<Finalized>,
+    events: Channel<TranscriptEvent>,
+) {
+    thread::spawn(move || {
+        while let Ok(first) = drafts.recv() {
+            // Keep only the latest draft per channel; older ones are already outdated.
+            let mut latest: Vec<SpeechChunk> = vec![first];
+            for chunk in drafts.try_iter() {
+                latest.retain(|c| c.channel != chunk.channel);
+                latest.push(chunk);
+            }
+            for chunk in latest {
+                if finalized.is_stale(&chunk) {
+                    continue;
+                }
+                let text = match drafter.transcribe(&chunk) {
+                    Ok(segments) => segments
+                        .iter()
+                        .map(|s| s.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    Err(e) => {
+                        tracing::debug!("draft failed: {e}");
+                        continue;
+                    }
+                };
+                if !text.is_empty() && !finalized.is_stale(&chunk) {
+                    let _ = events.send(TranscriptEvent::Draft {
+                        channel: chunk.channel,
+                        start: chunk.start_ms,
+                        text,
+                    });
+                }
+            }
+        }
+    });
 }
 
 /// Transcribes chunks in arrival order until the recorder drops its senders on stop,
@@ -236,7 +338,11 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
         let log_path = w.dir.join("transcript.jsonl");
         let mut segments = Vec::new();
         for chunk in &w.chunks {
-            match w.transcriber.transcribe(&chunk) {
+            let result = w.transcriber.transcribe(&chunk);
+            let until =
+                chunk.start_ms + (chunk.samples.len() as u64 * 1000 / murmur_audio::SAMPLE_RATE as u64);
+            w.finalized.set(chunk.channel, until);
+            match result {
                 Ok(new) => {
                     for segment in new {
                         if let Err(e) = append_jsonl(&log_path, &segment) {
@@ -255,6 +361,10 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
                     });
                 }
             }
+            let _ = w.events.send(TranscriptEvent::DraftDone {
+                channel: chunk.channel,
+                until,
+            });
         }
 
         w.session.duration_ms = w
