@@ -76,6 +76,11 @@ impl Index {
         if version < 1 {
             db.execute_batch(&format!("BEGIN; {SCHEMA} PRAGMA user_version = 1; COMMIT;"))?;
         }
+        if version < 2 {
+            db.execute_batch(
+                "BEGIN; ALTER TABLE sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''; PRAGMA user_version = 2; COMMIT;",
+            )?;
+        }
         Ok(Index { db })
     }
 
@@ -83,14 +88,15 @@ impl Index {
     pub fn save_session(
         &mut self,
         session: &Session,
+        notes: &str,
         segments: &[Segment],
         file_path: &str,
     ) -> Result<(), StoreError> {
         let tx = self.db.transaction()?;
         tx.execute("DELETE FROM sessions WHERE id = ?1", [&session.id])?;
         tx.execute(
-            "INSERT INTO sessions (id, title, folder, started_at, duration_ms, format, file_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO sessions (id, title, folder, started_at, duration_ms, format, file_path, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 session.id,
                 session.title,
@@ -98,7 +104,8 @@ impl Index {
                 session.started_at,
                 session.duration_ms as i64,
                 format_str(session.format),
-                file_path
+                file_path,
+                notes
             ],
         )?;
         {
@@ -118,6 +125,20 @@ impl Index {
             }
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    pub fn notes(&self, id: &str) -> Result<String, StoreError> {
+        let notes = self
+            .db
+            .query_row("SELECT notes FROM sessions WHERE id = ?1", [id], |r| r.get(0))
+            .optional()?;
+        Ok(notes.unwrap_or_default())
+    }
+
+    pub fn set_notes(&self, id: &str, notes: &str) -> Result<(), StoreError> {
+        self.db
+            .execute("UPDATE sessions SET notes = ?2 WHERE id = ?1", params![id, notes])?;
         Ok(())
     }
 
@@ -272,6 +293,7 @@ mod tests {
         let mut idx = Index::open_in_memory().unwrap();
         idx.save_session(
             &session("a", "Work", "2026-10-01T10:00:00Z"),
+            "",
             &[
                 seg(0, "We moved the deployment to Friday."),
                 seg(2000, "Ana owns the rollout plan."),
@@ -281,6 +303,7 @@ mod tests {
         .unwrap();
         idx.save_session(
             &session("b", "Personal", "2026-10-05T10:00:00Z"),
+            "",
             &[seg(0, "Revisamos la migración de la base de datos.")],
             "/v/Personal/b.md",
         )
@@ -331,11 +354,34 @@ mod tests {
         let mut idx = index();
         idx.save_session(
             &session("a", "Work", "2026-10-01T10:00:00Z"),
+            "",
             &[seg(0, "Only line.")],
             "/v/a.md",
         )
         .unwrap();
         assert_eq!(idx.get_session("a").unwrap().unwrap().1.len(), 1);
         assert!(idx.search("deployment", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn stores_notes() {
+        let idx = index();
+        assert_eq!(idx.notes("a").unwrap(), "");
+        idx.set_notes("a", "## Summary").unwrap();
+        assert_eq!(idx.notes("a").unwrap(), "## Summary");
+        assert_eq!(idx.notes("missing").unwrap(), "");
+    }
+
+    #[test]
+    fn migrates_a_version_1_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("old.db");
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(&format!("{SCHEMA} PRAGMA user_version = 1;"))
+                .unwrap();
+        }
+        let idx = Index::open(&path).unwrap();
+        assert_eq!(idx.notes("none").unwrap(), "");
     }
 }

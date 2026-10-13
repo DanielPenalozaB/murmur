@@ -49,3 +49,36 @@ body {
     @apply rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm outline-none focus:border-accent;
   }
 }
+
+/* Notes and answers rendered from Markdown. */
+@layer components {
+  .md {
+    @apply flex flex-col gap-2 leading-relaxed;
+  }
+  .md h1,
+  .md h2 {
+    @apply mt-3 font-serif text-xl first:mt-0;
+  }
+  .md h3 {
+    @apply mt-2 font-medium;
+  }
+  .md ul,
+  .md ol {
+    @apply flex flex-col gap-1 pl-5;
+  }
+  .md ul {
+    @apply list-disc;
+  }
+  .md ol {
+    @apply list-decimal;
+  }
+  .md li.task-list-item {
+    @apply -ml-5 list-none;
+  }
+  .md input[type="checkbox"] {
+    @apply mr-1.5 accent-accent;
+  }
+  .md code {
+    @apply rounded bg-muted px-1 text-sm;
+  }
+}

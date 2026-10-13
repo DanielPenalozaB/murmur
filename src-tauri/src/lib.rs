@@ -1,12 +1,12 @@
+mod assistant;
 mod library;
 mod recording;
 mod settings;
 
 use std::sync::Mutex;
 
-use murmur_llm::Provider;
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Manager, State};
 
 #[derive(Serialize)]
 struct AppInfo {
@@ -16,16 +16,12 @@ struct AppInfo {
 }
 
 #[tauri::command]
-fn app_info() -> AppInfo {
-    let provider = Provider::default();
-    let llm = match &provider {
-        Provider::Ollama { model, .. } => format!("Local · {model}"),
-        Provider::Anthropic { model } | Provider::Gemini { model } => format!("Cloud · {model}"),
-    };
+fn app_info(settings: State<settings::SettingsState>) -> AppInfo {
+    let provider = settings.0.lock().unwrap().llm.clone();
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         local: provider.is_local(),
-        llm,
+        llm: provider.label(),
     }
 }
 
@@ -55,6 +51,12 @@ pub fn run() {
             recording::set_recording_paused,
             recording::stop_recording,
             recording::recording_status,
+            assistant::ask,
+            assistant::generate_notes,
+            assistant::save_notes,
+            assistant::list_models,
+            assistant::api_keys,
+            assistant::set_api_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

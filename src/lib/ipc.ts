@@ -6,12 +6,27 @@ export type ExportFormat = "markdown" | "txt";
 
 export type AppInfo = { version: string; llm: string; local: boolean };
 
+export type Provider =
+  | { kind: "ollama"; base_url: string; model: string; num_ctx: number }
+  | { kind: "anthropic"; model: string }
+  | { kind: "gemini"; model: string };
+
+export type ModelInfo = { id: string; label: string };
+export type ApiKeys = { anthropic: boolean; gemini: boolean };
+
+export type StreamEvent =
+  | { kind: "text"; text: string }
+  | { kind: "done"; text: string }
+  | { kind: "error"; message: string };
+
 export type Settings = {
   vault_path: string;
   default_format: ExportFormat;
   last_folder: string;
   /** ISO codes. Empty: detect per chunk. One: forced. Several: follow switches. */
   languages: string[];
+  llm: Provider;
+  auto_notes: boolean;
 };
 
 export type RecorderStatus = {
@@ -49,7 +64,7 @@ export type SessionRecord = {
   file_path: string;
 };
 
-export type SessionDetail = SessionRecord & { segments: Segment[] };
+export type SessionDetail = SessionRecord & { segments: Segment[]; notes: string };
 
 export type FolderNode = { name: string; path: string; children: FolderNode[] };
 export type Folders = { tree: FolderNode[]; counts: Record<string, number> };
@@ -93,10 +108,27 @@ export const ipc = {
     channel.onmessage = onEvent;
     return invoke<void>("start_recording", { ...session, onEvent: channel });
   },
+  /** `sessionId` null asks about the recording in progress. */
+  ask: (sessionId: string | null, question: string, onEvent: (event: StreamEvent) => void) =>
+    invoke<void>("ask", { sessionId, question, onEvent: streamChannel(onEvent) }),
+  generateNotes: (sessionId: string, userNotes: string, onEvent: (event: StreamEvent) => void) =>
+    invoke<void>("generate_notes", { sessionId, userNotes, onEvent: streamChannel(onEvent) }),
+  saveNotes: (sessionId: string, notes: string) => invoke<void>("save_notes", { sessionId, notes }),
+  listModels: (provider: Provider) => invoke<ModelInfo[]>("list_models", { provider }),
+  apiKeys: () => invoke<ApiKeys>("api_keys"),
+  setApiKey: (name: "anthropic" | "gemini", key: string | null) =>
+    invoke<void>("set_api_key", { name, key }),
+
   setRecordingPaused: (paused: boolean) => invoke<void>("set_recording_paused", { paused }),
   stopRecording: () => invoke<Recording>("stop_recording"),
   recordingStatus: () => invoke<RecorderStatus | null>("recording_status"),
 };
+
+function streamChannel(onEvent: (event: StreamEvent) => void) {
+  const channel = new IpcChannel<StreamEvent>();
+  channel.onmessage = onEvent;
+  return channel;
+}
 
 export function formatDate(iso: string) {
   return new Date(iso).toLocaleString(undefined, {

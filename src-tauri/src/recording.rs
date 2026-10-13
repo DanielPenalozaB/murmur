@@ -32,6 +32,14 @@ pub struct RecordingState {
     model: Mutex<Option<Arc<WhisperModel>>>,
     /// Loaded the first time a meeting has two or more languages.
     language_model: Mutex<Option<Arc<WhisperModel>>>,
+    /// The current (or last) recording's transcript so far, for Ask during a meeting.
+    live: Arc<Mutex<Vec<Segment>>>,
+}
+
+impl RecordingState {
+    pub fn live_segments(&self) -> Vec<Segment> {
+        self.live.lock().unwrap().clone()
+    }
 }
 
 struct ActiveSession {
@@ -104,6 +112,19 @@ pub fn preload_model(app: &AppHandle) {
     });
 }
 
+/// Loads the local LLM while the meeting starts, so the first question is answered
+/// as fast as the rest instead of waiting 10–20 s for the model to load.
+fn warm_up_llm(app: &AppHandle) {
+    let provider = app.state::<SettingsState>().0.lock().unwrap().llm.clone();
+    tauri::async_runtime::spawn(async move {
+        let started = std::time::Instant::now();
+        match murmur_llm::warm_up(&provider).await {
+            Ok(()) => tracing::info!("{} ready in {:?}", provider.label(), started.elapsed()),
+            Err(e) => tracing::warn!("could not preload {}: {e}", provider.label()),
+        }
+    });
+}
+
 /// Async so the slow parts (model load, helper startup) run off the main thread and
 /// the window stays responsive.
 #[tauri::command]
@@ -116,6 +137,7 @@ pub async fn start_recording(
     on_event: Channel<TranscriptEvent>,
 ) -> Result<(), String> {
     murmur_store::validate_folder(&folder).map_err(|e| e.to_string())?;
+    warm_up_llm(&app);
     if languages.len() > MAX_LANGUAGES {
         return Err(format!("choose at most {MAX_LANGUAGES} languages"));
     }
@@ -158,6 +180,7 @@ pub async fn start_recording(
             let recorder =
                 Recorder::start(&helper_path()?, &dir, Some(chunks_tx)).map_err(|e| e.to_string())?;
             let (duration_tx, duration_rx) = mpsc::channel();
+            state.live.lock().unwrap().clear();
             spawn_transcription(
                 app.clone(),
                 Worker {
@@ -165,6 +188,7 @@ pub async fn start_recording(
                     transcriber,
                     chunks: chunks_rx,
                     duration: duration_rx,
+                    live: state.live.clone(),
                     dir,
                     events: on_event,
                 },
@@ -199,6 +223,7 @@ struct Worker<T> {
     transcriber: T,
     chunks: Receiver<SpeechChunk>,
     duration: Receiver<u64>,
+    live: Arc<Mutex<Vec<Segment>>>,
     /// Session audio folder; `transcript.jsonl` is appended here as segments arrive.
     dir: PathBuf,
     events: Channel<TranscriptEvent>,
@@ -220,6 +245,7 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
                         let _ = w.events.send(TranscriptEvent::Segment {
                             segment: segment.clone(),
                         });
+                        w.live.lock().unwrap().push(segment.clone());
                         segments.push(segment);
                     }
                 }
@@ -247,14 +273,14 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
 
 fn save_session(app: &AppHandle, session: &Session, segments: &[Segment]) -> Result<SessionRecord, String> {
     let vault = app.state::<SettingsState>().0.lock().unwrap().vault_path.clone();
-    let path = murmur_store::write_session_file(&vault, session, segments)
+    let path = murmur_store::write_session_file(&vault, session, "", segments)
         .map_err(|e| format!("could not write the session file: {e}"))?;
     let file_path = path.to_string_lossy().into_owned();
     app.state::<LibraryState>()
         .0
         .lock()
         .unwrap()
-        .save_session(session, segments, &file_path)
+        .save_session(session, "", segments, &file_path)
         .map_err(|e| format!("could not index the session: {e}"))?;
     Ok(SessionRecord {
         session: session.clone(),

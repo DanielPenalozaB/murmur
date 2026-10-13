@@ -9,6 +9,9 @@ type TranscriptState = {
   /** The saved session, once the file is written. */
   saved: SessionRecord | null;
   error: string | null;
+  /** What the user types in the Notes tab during the meeting. */
+  userNotes: string;
+  setUserNotes: (notes: string) => void;
   begin: (title: string) => void;
   setFinishing: (finishing: boolean) => void;
   handle: (event: TranscriptEvent) => void;
@@ -20,7 +23,10 @@ export const useTranscript = create<TranscriptState>((set) => ({
   finishing: false,
   saved: null,
   error: null,
-  begin: (title) => set({ title, segments: [], finishing: false, saved: null, error: null }),
+  userNotes: "",
+  setUserNotes: (userNotes) => set({ userNotes }),
+  begin: (title) =>
+    set({ title, segments: [], finishing: false, saved: null, error: null, userNotes: "" }),
   setFinishing: (finishing) => set({ finishing }),
   handle: (event) => {
     switch (event.kind) {

@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { type FolderNode, ipc } from "../../lib/ipc";
 import { useNav } from "../../lib/nav";
+import { ProviderBadge } from "../assistant/AskPanel";
+import { SettingsDialog } from "../settings/SettingsDialog";
 
 function Item({
   label,
@@ -41,6 +43,7 @@ export function Sidebar({ recording }: { recording: boolean }) {
   const settings = useQuery({ queryKey: ["settings"], queryFn: ipc.getSettings });
   const [query, setQuery] = useState("");
   const [newFolder, setNewFolder] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const create = useMutation({
     mutationFn: (path: string) => ipc.createFolder(path),
@@ -150,9 +153,24 @@ export function Sidebar({ recording }: { recording: boolean }) {
       </nav>
 
       {settings.data && (
-        <p className="truncate py-3 px-2 text-xs text-ink-soft" title={settings.data.vault_path}>
-          Vault: {settings.data.vault_path.replace(/^\/Users\/[^/]+/, "~")}
-        </p>
+        <div className="flex flex-col gap-2 border-t border-line px-2 py-3">
+          <p className="truncate text-xs text-ink-soft" title={settings.data.vault_path}>
+            Vault: {settings.data.vault_path.replace(/^\/Users\/[^/]+/, "~")}
+          </p>
+          <div className="flex items-center justify-between gap-2">
+            <ProviderBadge />
+            <button
+              type="button"
+              className="text-xs text-ink-soft hover:text-ink"
+              onClick={() => setSettingsOpen(true)}
+            >
+              Settings
+            </button>
+          </div>
+        </div>
+      )}
+      {settingsOpen && settings.data && (
+        <SettingsDialog settings={settings.data} onClose={() => setSettingsOpen(false)} />
       )}
     </aside>
   );

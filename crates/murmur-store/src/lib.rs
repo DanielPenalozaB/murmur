@@ -5,7 +5,10 @@ mod export;
 mod index;
 mod vault;
 
-pub use export::{Turn, file_extension, file_name, group_turns, render_session_file, write_session_file};
+pub use export::{
+    Turn, file_extension, file_name, group_turns, render_session_file, replace_notes, write_notes,
+    write_session_file,
+};
 pub use index::{Index, SearchHit, SessionRecord};
 pub use vault::{FolderNode, create_folder, list_folders, validate_folder};
 
@@ -17,4 +20,6 @@ pub enum StoreError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Db(#[from] rusqlite::Error),
+    #[error("the session file doesn't have the layout Murmur writes")]
+    Unrecognized,
 }

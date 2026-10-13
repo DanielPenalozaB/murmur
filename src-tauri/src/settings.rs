@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use murmur_core::ExportFormat;
+use murmur_llm::Provider;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
@@ -16,6 +17,10 @@ pub struct Settings {
     /// ISO codes of the languages spoken in meetings. Empty lets Whisper detect each
     /// chunk, one forces it, two or more follow switches between them.
     pub languages: Vec<String>,
+    /// Model for Ask and notes. Local Ollama unless the user opts into a cloud API.
+    pub llm: Provider,
+    /// Write notes automatically when a recording finishes.
+    pub auto_notes: bool,
 }
 
 impl Default for Settings {
@@ -26,6 +31,8 @@ impl Default for Settings {
             default_format: ExportFormat::Markdown,
             last_folder: String::new(),
             languages: Vec::new(),
+            llm: Provider::default(),
+            auto_notes: true,
         }
     }
 }

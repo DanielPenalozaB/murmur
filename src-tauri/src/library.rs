@@ -23,6 +23,7 @@ pub struct SessionDetail {
     #[serde(flatten)]
     record: SessionRecord,
     segments: Vec<Segment>,
+    notes: String,
 }
 
 pub fn open_index(app: &AppHandle) -> Result<Index, String> {
@@ -68,14 +69,15 @@ pub fn list_sessions(
 
 #[tauri::command]
 pub fn get_session(id: String, library: State<LibraryState>) -> Result<SessionDetail, String> {
-    let found = library
-        .0
-        .lock()
-        .unwrap()
-        .get_session(&id)
-        .map_err(|e| e.to_string())?;
+    let index = library.0.lock().unwrap();
+    let found = index.get_session(&id).map_err(|e| e.to_string())?;
     let (record, segments) = found.ok_or("session not found")?;
-    Ok(SessionDetail { record, segments })
+    let notes = index.notes(&id).map_err(|e| e.to_string())?;
+    Ok(SessionDetail {
+        record,
+        segments,
+        notes,
+    })
 }
 
 #[tauri::command]

@@ -70,19 +70,37 @@ pub fn file_name(session: &Session) -> String {
     format!("{date} {title}.{}", file_extension(session.format))
 }
 
-pub fn render_session_file(session: &Session, segments: &[Segment]) -> String {
+/// Markdown notes sit between these markers (invisible when rendered), so they can be
+/// replaced without touching the transcript or anything else edited in the file.
+const NOTES_START: &str = "<!-- murmur:notes -->";
+const NOTES_END: &str = "<!-- /murmur:notes -->";
+/// In plain text the transcript heading closes the notes.
+const TXT_TRANSCRIPT: &str = "TRANSCRIPT\n\n";
+
+fn notes_block(format: ExportFormat, notes: &str) -> String {
+    let notes = notes.trim();
+    match format {
+        ExportFormat::Markdown if notes.is_empty() => format!("{NOTES_START}\n{NOTES_END}\n\n"),
+        ExportFormat::Markdown => format!("{NOTES_START}\n{notes}\n{NOTES_END}\n\n"),
+        ExportFormat::Txt if notes.is_empty() => String::new(),
+        ExportFormat::Txt => format!("NOTES\n\n{notes}\n\n"),
+    }
+}
+
+pub fn render_session_file(session: &Session, notes: &str, segments: &[Segment]) -> String {
     let turns = group_turns(segments);
     let duration = timestamp(session.duration_ms);
     match session.format {
         ExportFormat::Markdown => {
             let mut out = format!(
-                "---\ntitle: {}\ndate: {}\nduration: \"{}\"\nfolder: {}\nsession: {}\n---\n\n# {}\n\n## Transcript\n\n",
+                "---\ntitle: {}\ndate: {}\nduration: \"{}\"\nfolder: {}\nsession: {}\n---\n\n# {}\n\n{}## Transcript\n\n",
                 yaml_string(&session.title),
                 session.started_at,
                 duration,
                 yaml_string(&session.folder),
                 session.id,
                 session.title,
+                notes_block(session.format, notes),
             );
             for t in &turns {
                 out.push_str(&format!(
@@ -96,8 +114,11 @@ pub fn render_session_file(session: &Session, segments: &[Segment]) -> String {
         }
         ExportFormat::Txt => {
             let mut out = format!(
-                "{}\n{} · {}\n\nTRANSCRIPT\n\n",
-                session.title, session.started_at, duration
+                "{}\n{} · {}\n\n{}{TXT_TRANSCRIPT}",
+                session.title,
+                session.started_at,
+                duration,
+                notes_block(session.format, notes),
             );
             for t in &turns {
                 out.push_str(&format!(
@@ -122,6 +143,7 @@ fn yaml_string(s: &str) -> String {
 pub fn write_session_file(
     vault: &Path,
     session: &Session,
+    notes: &str,
     segments: &[Segment],
 ) -> Result<PathBuf, StoreError> {
     validate_folder(&session.folder)?;
@@ -136,8 +158,47 @@ pub fn write_session_file(
         path = dir.join(format!("{stem} {n}.{ext}"));
         n += 1;
     }
-    std::fs::write(&path, render_session_file(session, segments))?;
+    std::fs::write(&path, render_session_file(session, notes, segments))?;
     Ok(path)
+}
+
+/// Replaces the notes in an existing session file, leaving everything else as is.
+/// Files without a notes area (written before notes existed) get one above the
+/// transcript.
+pub fn replace_notes(text: &str, format: ExportFormat, notes: &str) -> Result<String, StoreError> {
+    let block = notes_block(format, notes);
+    let (start, end) = match format {
+        ExportFormat::Markdown => match (text.find(NOTES_START), text.find(NOTES_END)) {
+            (Some(start), Some(end)) if end > start => {
+                let mut end = end + NOTES_END.len();
+                // Swallow the blank line the block ends with, since `block` adds it back.
+                while text[end..].starts_with('\n') {
+                    end += 1;
+                }
+                (start, end)
+            }
+            _ => {
+                let at = text.find("## Transcript").ok_or(StoreError::Unrecognized)?;
+                (at, at)
+            }
+        },
+        ExportFormat::Txt => {
+            let transcript = text
+                .find(&format!("\n{TXT_TRANSCRIPT}"))
+                .ok_or(StoreError::Unrecognized)?
+                + 1;
+            // Notes, if any, start after the two header lines and a blank line.
+            let header_end = text.find("\n\n").map_or(0, |i| i + 2).min(transcript);
+            (header_end, transcript)
+        }
+    };
+    Ok(format!("{}{block}{}", &text[..start], &text[end..]))
+}
+
+pub fn write_notes(path: &Path, format: ExportFormat, notes: &str) -> Result<(), StoreError> {
+    let text = std::fs::read_to_string(path)?;
+    std::fs::write(path, replace_notes(&text, format, notes)?)?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -194,7 +255,7 @@ mod tests {
 
     #[test]
     fn markdown_has_frontmatter_and_transcript() {
-        let md = render_session_file(&session(ExportFormat::Markdown), &segments());
+        let md = render_session_file(&session(ExportFormat::Markdown), "", &segments());
         assert!(md.starts_with(
             "---\ntitle: \"Sprint: review / Q4\"\ndate: 2026-10-12T10:00:00-05:00\nduration: \"02:05\"\n"
         ));
@@ -203,7 +264,7 @@ mod tests {
 
     #[test]
     fn txt_is_plain() {
-        let txt = render_session_file(&session(ExportFormat::Txt), &segments());
+        let txt = render_session_file(&session(ExportFormat::Txt), "", &segments());
         assert!(txt.contains("[00:01] Them: Hi all. Let's start.\n\n[01:05] Me: Sounds good.\n"));
     }
 
@@ -211,9 +272,39 @@ mod tests {
     fn never_overwrites_existing_files() {
         let vault = tempfile::tempdir().unwrap();
         let s = session(ExportFormat::Markdown);
-        let a = write_session_file(vault.path(), &s, &segments()).unwrap();
-        let b = write_session_file(vault.path(), &s, &segments()).unwrap();
+        let a = write_session_file(vault.path(), &s, "", &segments()).unwrap();
+        let b = write_session_file(vault.path(), &s, "", &segments()).unwrap();
         assert_ne!(a, b);
         assert!(b.ends_with("Work/2026-10-12 Sprint- review - Q4 2.md"));
+    }
+
+    #[test]
+    fn notes_are_replaced_without_touching_the_rest() {
+        for format in [ExportFormat::Markdown, ExportFormat::Txt] {
+            let s = session(format);
+            let empty = render_session_file(&s, "", &segments());
+            let with_notes = replace_notes(&empty, format, "## Summary\n- shipped").unwrap();
+            assert_eq!(
+                with_notes,
+                render_session_file(&s, "## Summary\n- shipped", &segments())
+            );
+            let edited = with_notes.replace("Hi all.", "Hi everyone.");
+            let replaced = replace_notes(&edited, format, "- new").unwrap();
+            assert!(
+                replaced.contains("- new") && !replaced.contains("shipped"),
+                "{replaced}"
+            );
+            assert!(replaced.contains("Hi everyone."));
+            assert!(!replace_notes(&replaced, format, "").unwrap().contains("- new"));
+        }
+    }
+
+    #[test]
+    fn notes_are_added_to_files_written_before_notes_existed() {
+        let old = "---\ntitle: \"T\"\n---\n\n# T\n\n## Transcript\n\n**Me** · 00:01  \nhi\n";
+        let updated = replace_notes(old, ExportFormat::Markdown, "- note").unwrap();
+        assert!(
+            updated.contains("# T\n\n<!-- murmur:notes -->\n- note\n<!-- /murmur:notes -->\n\n## Transcript")
+        );
     }
 }

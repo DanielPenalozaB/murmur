@@ -60,7 +60,7 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 |---|---|
 | App shell | Tauri 2 |
 | UI | React 19, TypeScript, Vite, Tailwind v4, TanStack Query (server state), Zustand (UI state) |
-| Notes editor | TipTap (milestone 3) |
+| Notes | Markdown textarea + `react-markdown`/`remark-gfm` rendering (a rich editor can come later) |
 | Typed IPC | `tauri-specta` to generate TS bindings from Rust commands (milestone 2) |
 | Async runtime | tokio |
 | Mic capture | Swift helper, AVAudioEngine |
@@ -71,7 +71,7 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 | STT | `whisper-rs` (whisper.cpp, Metal); default model large-v3-turbo q5; `ggml-base` for language ID in mixed-language meetings |
 | Diarization | `sherpa-rs` (sherpa-onnx segmentation + speaker embeddings) |
 | HTTP / streaming | `reqwest` + SSE parsing for Ollama, Anthropic, Gemini |
-| Secrets | `keyring` (macOS Keychain); API keys never reach the webview |
+| Secrets | `security-framework` (macOS Keychain); API keys never reach the webview |
 | Database | `rusqlite` (bundled, FTS5) |
 | Logging | `tracing` |
 
@@ -89,6 +89,9 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 2. **Live transcript:** VAD → whisper → segments streamed to the UI. ✅ (typed IPC via tauri-specta deferred)
 3. **Library:** folders, sessions, SQLite index (FTS5), Markdown/TXT export. ✅ (notes editor moves to milestone 4 with AI notes; re-indexing files edited outside the app still to do)
    - Mixed-language meetings (English ↔ Spanish switches) ✅
-4. **Intelligence:** Ask panel (streaming answers with timestamp citations), post-meeting summary, provider settings + Keychain.
+4. **Intelligence:** Ask panel (streaming answers with timestamp citations), post-meeting summary, provider settings + Keychain. ✅
+   - Ask works live and on saved sessions ("/btw" prefix accepted, ⌘K to focus); citations jump to the transcript.
+   - Notes (summary, decisions, action items, open questions) are written when a recording stops, from the transcript plus the user's own notes, which are kept verbatim under "My notes".
+   - Notes live in the session file between `<!-- murmur:notes -->` markers, so regenerating or editing them never touches the transcript or edits made outside those markers.
 5. **Speakers:** post-meeting diarization, rename speakers, voiceprints.
 6. **Polish:** meeting auto-detect, menu-bar recorder, signing + notarization, auto-update.
