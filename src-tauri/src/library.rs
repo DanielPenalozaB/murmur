@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use murmur_core::Segment;
-use murmur_store::{FolderNode, Index, SearchHit, SessionRecord, SpeakerInfo};
+use murmur_store::{FolderNode, Index, SearchHit, SessionCard, SessionRecord, SpeakerInfo};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -59,12 +59,12 @@ pub fn create_folder(path: String, settings: State<SettingsState>) -> Result<(),
 pub fn list_sessions(
     folder: Option<String>,
     library: State<LibraryState>,
-) -> Result<Vec<SessionRecord>, String> {
+) -> Result<Vec<SessionCard>, String> {
     library
         .0
         .lock()
         .unwrap()
-        .list_sessions(folder.as_deref())
+        .session_cards(folder.as_deref())
         .map_err(|e| e.to_string())
 }
 

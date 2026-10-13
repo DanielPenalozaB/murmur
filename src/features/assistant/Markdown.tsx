@@ -15,7 +15,7 @@ export function Markdown({ text, onSeek }: { text: string; onSeek?: (ms: number)
             return (
               <button
                 type="button"
-                className="mx-0.5 rounded bg-muted px-1 text-xs tabular-nums text-ink-soft hover:text-accent"
+                className="mx-0.5 rounded bg-accent-soft px-1.5 py-px text-[12px] font-medium tabular-nums text-on-accent-soft hover:ring-1 hover:ring-accent/50"
                 onClick={() => onSeek?.(ms)}
                 title="Show in transcript"
               >

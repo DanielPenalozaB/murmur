@@ -1,16 +1,63 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AudioLines,
+  ExternalLink,
+  FileText,
+  FolderOpen,
+  Lock,
+  PencilLine,
+  RefreshCw,
+  UsersRound,
+} from "lucide-react";
 import { useState } from "react";
+import { Avatar, TopBar } from "../../components/ui";
 import { formatDate, formatDuration, ipc, type SessionDetail } from "../../lib/ipc";
 import { useNav } from "../../lib/nav";
 import { AskPanel } from "../assistant/AskPanel";
 import { Markdown } from "../assistant/Markdown";
+import { NotesDocument } from "../assistant/NotesDocument";
+import { actionItems, toggleAction } from "../assistant/notes";
 import { useNotes } from "../assistant/store";
-import { type Seek, TranscriptTurns } from "../transcript/TranscriptTurns";
+import {
+  type Rename,
+  type Seek,
+  SpeakerChip,
+  TranscriptTurns,
+} from "../transcript/TranscriptTurns";
 
 /** The user's own notes, kept under "## My notes" when notes are generated. */
-function userNotesOf(notes: string) {
+export function userNotesOf(notes: string) {
   const at = notes.indexOf("## My notes");
   return at === -1 ? "" : notes.slice(at + "## My notes".length).trim();
+}
+
+function Attendees({ session, onRename }: { session: SessionDetail; onRename: Rename }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-sidebar px-4 py-3">
+      <span className="eyebrow mr-1 flex items-center gap-1.5">
+        <UsersRound className="size-3.5" /> Attendees
+      </span>
+      <span className="chip gap-1.5 bg-surface py-1">
+        <Avatar name="Me" size="xs" /> Me <span className="text-ink-soft">(you)</span>
+      </span>
+      {session.speakers.map((s) => (
+        <span key={s.id} className="chip gap-1.5 bg-surface py-1">
+          <Avatar name={s.name} size="xs" />
+          <SpeakerChip label={s.name} channel="system" speakerId={s.id} onRename={onRename} plain />
+        </span>
+      ))}
+      {session.speakers.length === 0 && session.segments.some((s) => s.channel === "system") && (
+        <span className="chip gap-1.5 bg-surface py-1">
+          <Avatar name="Them" size="xs" /> Them
+        </span>
+      )}
+      {session.speakers.some((s) => !s.named) && (
+        <span className="ml-auto text-[12px] text-ink-soft">
+          Click a speaker to name them; Murmur remembers their voice.
+        </span>
+      )}
+    </div>
+  );
 }
 
 function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: number) => void }) {
@@ -22,6 +69,17 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
   const writing = job?.status === "writing";
   const hasTranscript = session.segments.length > 0;
 
+  const save = async (notes: string) => {
+    try {
+      await ipc.saveNotes(session.id, notes);
+      await queryClient.invalidateQueries({ queryKey: ["session", session.id] });
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      setDraft(null);
+      setSaveError(null);
+    } catch (e) {
+      setSaveError(String(e));
+    }
+  };
   const regenerate = () => {
     if (session.notes.trim() && !window.confirm("Replace the current notes with new ones?")) return;
     generate(session.id, userNotesOf(session.notes));
@@ -31,7 +89,7 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
     return (
       <div className="flex flex-col gap-3">
         <textarea
-          className="input min-h-96 resize-y font-mono leading-relaxed"
+          className="input min-h-[60vh] resize-y bg-surface font-mono text-[13px] leading-relaxed"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
         />
@@ -40,20 +98,7 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
           <button type="button" className="btn-ghost" onClick={() => setDraft(null)}>
             Cancel
           </button>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={async () => {
-              try {
-                await ipc.saveNotes(session.id, draft);
-                await queryClient.invalidateQueries({ queryKey: ["session", session.id] });
-                setDraft(null);
-                setSaveError(null);
-              } catch (e) {
-                setSaveError(String(e));
-              }
-            }}
-          >
+          <button type="button" className="btn-primary" onClick={() => save(draft)}>
             Save
           </button>
         </div>
@@ -62,35 +107,62 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6 pb-20">
       {writing ? (
         <>
-          <p className="text-sm text-ink-soft">Writing notes…</p>
+          <p className="flex items-center gap-2 text-[14px] text-ink-soft">
+            <RefreshCw className="size-4 animate-spin" /> Writing notes…
+          </p>
           {job.text && <Markdown text={job.text} onSeek={onSeek} />}
         </>
       ) : session.notes.trim() ? (
-        <Markdown text={session.notes} onSeek={onSeek} />
+        <NotesDocument
+          notes={session.notes}
+          onSeek={onSeek}
+          onToggleAction={(line) => save(toggleAction(session.notes, line))}
+        />
       ) : (
-        <p className="text-ink-soft">
-          {hasTranscript
-            ? "No notes yet. Murmur can write a summary, decisions and action items from the transcript."
-            : "No speech was transcribed, so there's nothing to write notes from."}
-        </p>
+        <div className="card flex flex-col items-start gap-3 p-6">
+          <p className="font-serif text-xl">No notes yet</p>
+          <p className="text-ink-soft">
+            {hasTranscript
+              ? "Murmur can write a summary, decisions and action items from the transcript."
+              : "No speech was transcribed, so there's nothing to write notes from."}
+          </p>
+          {hasTranscript && (
+            <button type="button" className="btn-primary" onClick={regenerate}>
+              Write notes
+            </button>
+          )}
+        </div>
       )}
       {job?.status === "error" && <p className="text-sm text-accent">{job.error}</p>}
-      {!writing && (
-        <div className="flex gap-2">
+      {saveError && <p className="text-sm text-accent">{saveError}</p>}
+
+      {!writing && session.notes.trim() && (
+        <div className="sticky bottom-4 mx-auto flex items-center gap-1 rounded-full bg-ink px-2 py-1.5 text-canvas shadow-xl">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] hover:bg-canvas/15"
+            onClick={() => setDraft(session.notes)}
+          >
+            <PencilLine className="size-3.5" /> Edit
+          </button>
           {hasTranscript && (
             <button
               type="button"
-              className={session.notes.trim() ? "btn-ghost" : "btn-primary"}
+              className="flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] hover:bg-canvas/15"
               onClick={regenerate}
             >
-              {session.notes.trim() ? "Regenerate" : "Write notes"}
+              <RefreshCw className="size-3.5" /> Regenerate
             </button>
           )}
-          <button type="button" className="btn-ghost" onClick={() => setDraft(session.notes)}>
-            Edit
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[13px] text-on-accent"
+            onClick={() => ipc.openSessionItem(session.id, "open_file")}
+          >
+            <ExternalLink className="size-3.5" /> Open file
           </button>
         </div>
       )}
@@ -100,6 +172,7 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
 
 export function SessionView({ id }: { id: string }) {
   const go = useNav((s) => s.go);
+  const queryClient = useQueryClient();
   const session = useQuery({ queryKey: ["session", id], queryFn: () => ipc.getSession(id) });
   const [tab, setTab] = useState<"notes" | "transcript">("notes");
   const [seek, setSeek] = useState<Seek | null>(null);
@@ -110,91 +183,143 @@ export function SessionView({ id }: { id: string }) {
     setTab("transcript");
     setSeek({ ms, nonce: Date.now() });
   };
+  const rename: Rename = async (speakerId, name) => {
+    await ipc.renameSpeaker(id, speakerId, name);
+    await Promise.all(
+      [["session", id], ["sessions"], ["voices"]].map((queryKey) =>
+        queryClient.invalidateQueries({ queryKey }),
+      ),
+    );
+  };
+  const actions = s ? actionItems(s.notes) : [];
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-[1fr_340px]">
-      <div className="overflow-y-auto px-8 pb-8 pt-12 select-text">
-        <div className="mx-auto max-w-3xl">
-          {session.error && <p className="text-accent">{String(session.error)}</p>}
-          {s && (
-            <>
-              <button
-                type="button"
-                className="text-xs uppercase tracking-wide text-ink-soft hover:text-ink"
-                onClick={() => go({ kind: "folder", folder: s.folder })}
-              >
-                {s.folder ? s.folder.replaceAll("/", " / ") : "Vault root"}
-              </button>
-              <h2 className="mt-1 font-serif text-3xl">{s.title}</h2>
-              <p className="mt-1 text-sm text-ink-soft">
-                {formatDate(s.started_at)} · {formatDuration(s.duration_ms)}
-              </p>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <TopBar crumbs={["Vault", ...(s?.folder ? s.folder.split("/") : []), s?.title ?? ""]}>
+        {s && (
+          <>
+            <button
+              type="button"
+              className="btn-quiet"
+              title="Open file"
+              onClick={() => ipc.openSessionItem(id, "open_file")}
+            >
+              <FileText className="size-4" />
+            </button>
+            <button
+              type="button"
+              className="btn-quiet"
+              title="Reveal in Finder"
+              onClick={() => ipc.openSessionItem(id, "reveal_file")}
+            >
+              <FolderOpen className="size-4" />
+            </button>
+            <button
+              type="button"
+              className="btn-quiet"
+              title="Show audio"
+              onClick={() => ipc.openSessionItem(id, "reveal_audio")}
+            >
+              <AudioLines className="size-4" />
+            </button>
+          </>
+        )}
+      </TopBar>
 
-              <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface p-3 text-sm">
-                <span className="truncate text-ink-soft" title={s.file_path}>
-                  {s.file_path.replace(/^\/Users\/[^/]+/, "~")}
-                </span>
-                <div className="ml-auto flex gap-2">
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() => ipc.openSessionItem(id, "open_file")}
-                  >
-                    Open file
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() => ipc.openSessionItem(id, "reveal_file")}
-                  >
-                    Reveal in Finder
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    onClick={() => ipc.openSessionItem(id, "reveal_audio")}
-                  >
-                    Audio
-                  </button>
+      <div className="grid min-h-0 flex-1 grid-cols-[1fr_380px] gap-6 px-8 pb-6">
+        <div className="min-h-0 overflow-y-auto pr-2 select-text">
+          <div className="mx-auto flex max-w-[720px] flex-col gap-6 pt-2">
+            {session.error && <p className="text-accent">{String(session.error)}</p>}
+            {s && (
+              <>
+                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium">
+                  <span className="chip gap-1.5 bg-muted py-1">
+                    <Lock className="size-3" /> Local file · .
+                    {s.format === "markdown" ? "md" : "txt"}
+                  </span>
+                  <span className="text-outline">/</span>
+                  <span className="chip gap-1.5 bg-muted py-1">
+                    <AudioLines className="size-3" /> {formatDuration(s.duration_ms)} captured
+                  </span>
                 </div>
-              </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-soft">
+                    <button
+                      type="button"
+                      className="chip bg-local-soft uppercase tracking-wide text-on-local-soft"
+                      onClick={() => go({ kind: "folder", folder: s.folder })}
+                    >
+                      {s.folder || "Vault root"}
+                    </button>
+                    <span>•</span>
+                    <span>{formatDate(s.started_at)}</span>
+                    <span>•</span>
+                    <span>Transcribed locally</span>
+                  </div>
+                  <h1 className="mt-3 font-serif text-[40px] leading-[48px] tracking-[-0.02em]">
+                    {s.title}
+                  </h1>
+                </div>
 
-              <div className="mb-5 mt-8 flex gap-1 border-b border-line">
-                {(["notes", "transcript"] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setTab(t)}
-                    className={`-mb-px border-b-2 px-3 py-2 text-sm ${
-                      tab === t
-                        ? "border-accent font-medium"
-                        : "border-transparent text-ink-soft hover:text-ink"
-                    }`}
-                  >
-                    {t === "notes" ? "Notes" : "Transcript"}
-                  </button>
-                ))}
-              </div>
+                <Attendees session={s} onRename={rename} />
 
-              {tab === "notes" ? (
-                <NotesTab session={s} onSeek={onSeek} />
-              ) : s.segments.length === 0 ? (
-                <p className="text-ink-soft">No speech was transcribed in this session.</p>
-              ) : (
-                <TranscriptTurns segments={s.segments} seek={seek} />
-              )}
-            </>
-          )}
+                <div className="flex justify-center gap-2">
+                  {(["notes", "transcript"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTab(t)}
+                      className={`rounded-lg px-3 py-1.5 text-[13px] font-medium ${
+                        tab === t ? "bg-ink text-canvas" : "bg-muted text-ink hover:bg-high"
+                      }`}
+                    >
+                      {t === "notes" ? "Notes" : "Transcript"}
+                    </button>
+                  ))}
+                  {actions.length > 0 && (
+                    <button
+                      type="button"
+                      className="rounded-lg bg-muted px-3 py-1.5 text-[13px] font-medium hover:bg-high"
+                      onClick={() => {
+                        setTab("notes");
+                        setTimeout(() =>
+                          document
+                            .getElementById("action-items")
+                            ?.scrollIntoView({ behavior: "smooth" }),
+                        );
+                      }}
+                    >
+                      Action items ({actions.length})
+                    </button>
+                  )}
+                </div>
+
+                {tab === "notes" ? (
+                  <NotesTab session={s} onSeek={onSeek} />
+                ) : s.segments.length === 0 ? (
+                  <p className="text-ink-soft">No speech was transcribed in this session.</p>
+                ) : (
+                  <div className="pb-10">
+                    <TranscriptTurns
+                      segments={s.segments}
+                      seek={seek}
+                      speakers={s.speakers}
+                      onRename={rename}
+                    />
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex min-h-0 flex-col">
+          <AskPanel
+            target={id}
+            onSeek={onSeek}
+            disabled={s && s.segments.length === 0 ? "This session has no transcript." : undefined}
+          />
         </div>
       </div>
-      <aside className="flex min-h-0 flex-col border-l border-line bg-sidebar">
-        <h3 className="border-b border-line px-4 pb-2 pt-11 text-sm font-medium">Ask</h3>
-        <AskPanel
-          target={id}
-          onSeek={onSeek}
-          disabled={s && s.segments.length === 0 ? "This session has no transcript" : undefined}
-        />
-      </aside>
     </div>
   );
 }

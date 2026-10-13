@@ -1,49 +1,77 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import {
+  Folder,
+  Inbox,
+  Mic,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  SquarePen,
+  UsersRound,
+} from "lucide-react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { LogoMark } from "../../components/ui";
 import { type FolderNode, ipc } from "../../lib/ipc";
-import { useNav } from "../../lib/nav";
-import { ProviderBadge } from "../assistant/AskPanel";
-import { SettingsDialog } from "../settings/SettingsDialog";
+import { useNav, useUi } from "../../lib/nav";
 
 function Item({
+  icon,
   label,
   count,
   active,
   depth = 0,
   onClick,
-  dot,
+  live,
 }: {
+  icon: ReactNode;
   label: string;
   count?: number;
   active: boolean;
   depth?: number;
   onClick: () => void;
-  dot?: boolean;
+  live?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      style={{ paddingLeft: 8 + depth * 14 }}
-      className={`flex w-full items-center gap-2 rounded-md py-1.5 pr-2 text-left text-sm ${
-        active ? "bg-muted font-medium" : "hover:bg-muted/60"
+      style={{ paddingLeft: 10 + depth * 14 }}
+      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pr-2.5 text-left text-[14px] ${
+        active ? "bg-high font-medium text-ink" : "text-ink-soft hover:bg-muted hover:text-ink"
       }`}
     >
-      {dot && <span className="size-2 animate-pulse rounded-full bg-accent" />}
+      <span className="text-ink-soft [&>svg]:size-4">{icon}</span>
       <span className="flex-1 truncate">{label}</span>
-      {count !== undefined && count > 0 && <span className="text-xs text-ink-soft">{count}</span>}
+      {live && <span className="size-2 animate-pulse rounded-full bg-accent" />}
+      {count !== undefined && count > 0 && (
+        <span className="text-xs tabular-nums text-outline">{count}</span>
+      )}
     </button>
   );
 }
 
 export function Sidebar({ recording }: { recording: boolean }) {
   const { view, go } = useNav();
+  const setStartOpen = useUi((s) => s.setStartOpen);
   const queryClient = useQueryClient();
   const folders = useQuery({ queryKey: ["folders"], queryFn: ipc.listFolders });
-  const settings = useQuery({ queryKey: ["settings"], queryFn: ipc.getSettings });
+  const info = useQuery({ queryKey: ["app-info"], queryFn: ipc.appInfo });
   const [query, setQuery] = useState("");
   const [newFolder, setNewFolder] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const searchInput = useRef<HTMLInputElement>(null);
+
+  // ⌘K searches from anywhere, as in the design.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey && e.key === "k") {
+        e.preventDefault();
+        searchInput.current?.focus();
+        searchInput.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const create = useMutation({
     mutationFn: (path: string) => ipc.createFolder(path),
@@ -62,6 +90,7 @@ export function Sidebar({ recording }: { recording: boolean }) {
     nodes.map((node) => (
       <div key={node.path}>
         <Item
+          icon={<Folder />}
           label={node.name}
           count={counts[node.path]}
           depth={depth}
@@ -73,48 +102,68 @@ export function Sidebar({ recording }: { recording: boolean }) {
     ));
 
   return (
-    <aside className="flex min-h-0 flex-col border-r border-line bg-sidebar px-3 pt-11">
-      <div className="h-6" data-tauri-drag-region />
-      <h1 className="px-2 font-serif text-xl">Murmur</h1>
+    <aside className="flex min-h-0 flex-col bg-sidebar px-3 pt-10">
+      <div className="h-2" data-tauri-drag-region />
+      <div className="flex items-center gap-2.5 px-1.5" data-tauri-drag-region>
+        <LogoMark />
+        <span className="flex-1 font-serif text-xl">Murmur</span>
+        <button
+          type="button"
+          className="rounded-lg bg-muted p-1.5 text-ink-soft hover:bg-high hover:text-ink disabled:opacity-40"
+          title="New session"
+          disabled={recording}
+          onClick={() => {
+            go({ kind: "live" });
+            setStartOpen(true);
+          }}
+        >
+          <SquarePen className="size-4" />
+        </button>
+      </div>
 
       <form
-        className="mt-4"
+        className="mt-4 flex items-center gap-2 rounded-lg bg-muted px-2.5 py-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           if (query.trim()) go({ kind: "search", query: query.trim() });
         }}
       >
+        <Search className="size-4 text-ink-soft" />
         <input
-          className="input w-full"
-          placeholder="Search transcripts"
+          ref={searchInput}
+          className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-ink-soft"
+          placeholder="Search corpus"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
+        <span className="kbd">⌘K</span>
       </form>
 
-      <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+      <nav className="mt-5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
         <Item
+          icon={<Mic />}
           label={recording ? "Recording now" : "Live"}
           active={view.kind === "live"}
-          dot={recording}
+          live={recording}
           onClick={() => go({ kind: "live" })}
         />
         <Item
-          label="All sessions"
+          icon={<Inbox />}
+          label="All notes"
           count={total}
           active={isFolder(null)}
           onClick={() => go({ kind: "folder", folder: null })}
         />
 
-        <div className="mt-4 flex items-center justify-between px-2">
-          <span className="text-xs uppercase tracking-wide text-ink-soft">Folders</span>
+        <div className="mt-5 mb-1 flex items-center justify-between px-2.5">
+          <span className="eyebrow">Notebooks</span>
           <button
             type="button"
-            className="text-lg leading-none text-ink-soft hover:text-ink"
+            className="text-ink-soft hover:text-ink"
             title="New folder"
             onClick={() => setNewFolder("")}
           >
-            +
+            <Plus className="size-4" />
           </button>
         </div>
         {newFolder !== null && (
@@ -140,6 +189,7 @@ export function Sidebar({ recording }: { recording: boolean }) {
         )}
         {counts[""] ? (
           <Item
+            icon={<Folder />}
             label="Vault root"
             count={counts[""]}
             active={isFolder("")}
@@ -148,30 +198,50 @@ export function Sidebar({ recording }: { recording: boolean }) {
         ) : null}
         {renderNodes(folders.data?.tree ?? [], 0)}
         {folders.data?.tree.length === 0 && (
-          <p className="px-2 py-1 text-xs text-ink-soft">No folders yet. Click + to add one.</p>
+          <p className="px-2.5 py-1 text-xs text-ink-soft">No folders yet. Click + to add one.</p>
         )}
+
+        <span className="eyebrow mt-5 mb-1 px-2.5">Intelligence</span>
+        <Item
+          icon={<UsersRound />}
+          label="Speakers"
+          active={view.kind === "speakers"}
+          onClick={() => go({ kind: "speakers" })}
+        />
+        <Item
+          icon={<SlidersHorizontal />}
+          label="Settings"
+          active={view.kind === "settings"}
+          onClick={() => go({ kind: "settings" })}
+        />
       </nav>
 
-      {settings.data && (
-        <div className="flex flex-col gap-2 border-t border-line px-2 py-3">
-          <p className="truncate text-xs text-ink-soft" title={settings.data.vault_path}>
-            Vault: {settings.data.vault_path.replace(/^\/Users\/[^/]+/, "~")}
-          </p>
-          <div className="flex items-center justify-between gap-2">
-            <ProviderBadge />
-            <button
-              type="button"
-              className="text-xs text-ink-soft hover:text-ink"
-              onClick={() => setSettingsOpen(true)}
-            >
-              Settings
-            </button>
-          </div>
+      <div className="mb-2 flex flex-col gap-2 rounded-xl bg-muted p-3 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="eyebrow">Indexed vault</span>
+          <span className="text-ink-soft">
+            {total} {total === 1 ? "note" : "notes"}
+          </span>
         </div>
-      )}
-      {settingsOpen && settings.data && (
-        <SettingsDialog settings={settings.data} onClose={() => setSettingsOpen(false)} />
-      )}
+        <div className="h-1 overflow-hidden rounded-full bg-high">
+          <div className="h-full w-full rounded-full bg-local" />
+        </div>
+        {info.data && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-ink-soft">AI</span>
+            <span className={`truncate ${info.data.local ? "text-local" : "text-accent"}`}>
+              {info.data.llm}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 px-1.5 pb-3 text-xs text-ink-soft">
+        <span
+          className={`size-2 rounded-full ${recording ? "animate-pulse bg-accent" : "bg-local"}`}
+        />
+        <span className="flex-1">{recording ? "Recording" : "Engine idle"}</span>
+        {info.data && <span>v{info.data.version}</span>}
+      </div>
     </aside>
   );
 }

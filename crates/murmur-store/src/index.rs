@@ -14,6 +14,19 @@ pub struct SessionRecord {
     pub file_path: String,
 }
 
+/// A session as shown on a library card.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SessionCard {
+    #[serde(flatten)]
+    pub record: SessionRecord,
+    /// First summary bullet, or the start of the transcript when there are no notes.
+    pub excerpt: String,
+    pub actions_open: u32,
+    pub actions_done: u32,
+    /// Names of the people on the call, in speaking order.
+    pub speakers: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SearchHit {
     pub session_id: String,
@@ -22,6 +35,8 @@ pub struct SearchHit {
     pub started_at: String,
     /// Segment start within the session, in ms.
     pub start: u64,
+    /// Who said it: "Me", a speaker's name, "Speaker 2" or "Them".
+    pub speaker: String,
     /// Matching text with hits wrapped in `[` `]`.
     pub snippet: String,
 }
@@ -352,6 +367,36 @@ impl Index {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Sessions newest first with what a library card shows.
+    pub fn session_cards(&self, folder: Option<&str>) -> Result<Vec<SessionCard>, StoreError> {
+        let records = self.list_sessions(folder)?;
+        let mut cards = Vec::with_capacity(records.len());
+        let mut first_line = self
+            .db
+            .prepare("SELECT text FROM segments WHERE session_id = ?1 ORDER BY start_ms LIMIT 1")?;
+        for record in records {
+            let id = &record.session.id;
+            let notes = self.notes(id)?;
+            let (actions_open, actions_done) = crate::count_actions(&notes);
+            let mut excerpt = crate::excerpt(&notes);
+            if excerpt.is_empty() {
+                excerpt = first_line
+                    .query_row([id], |r| r.get::<_, String>(0))
+                    .optional()?
+                    .unwrap_or_default();
+            }
+            let speakers = self.speakers(id)?.into_iter().map(|s| s.name).collect();
+            cards.push(SessionCard {
+                record,
+                excerpt,
+                actions_open,
+                actions_done,
+                speakers,
+            });
+        }
+        Ok(cards)
+    }
+
     pub fn get_session(&self, id: &str) -> Result<Option<(SessionRecord, Vec<Segment>)>, StoreError> {
         let record = self
             .db
@@ -396,20 +441,28 @@ impl Index {
         };
         let mut stmt = self.db.prepare(
             "SELECT s.id, s.title, s.folder, s.started_at, g.start_ms,
-                    snippet(segments_fts, 0, '[', ']', '…', 12)
+                    snippet(segments_fts, 0, '[', ']', '…', 12), g.channel, g.speaker, ss.name
              FROM segments_fts
              JOIN segments g ON g.id = segments_fts.rowid
              JOIN sessions s ON s.id = g.session_id
+             LEFT JOIN session_speakers ss ON ss.session_id = g.session_id AND ss.speaker_id = g.speaker
              WHERE segments_fts MATCH ?1
              ORDER BY rank LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![fts_query, limit], |r| {
+            let channel = parse_channel(&r.get::<_, String>(6)?);
+            let speaker = r.get::<_, Option<String>>(7)?.map(SpeakerId);
+            let names: SpeakerNames = match (&speaker, r.get::<_, Option<String>>(8)?) {
+                (Some(id), Some(name)) => SpeakerNames::from([(id.0.clone(), name)]),
+                _ => SpeakerNames::new(),
+            };
             Ok(SearchHit {
                 session_id: r.get(0)?,
                 title: r.get(1)?,
                 folder: r.get(2)?,
                 started_at: r.get(3)?,
                 start: r.get::<_, i64>(4)? as u64,
+                speaker: murmur_core::speaker_label(channel, speaker.as_ref(), &names),
                 snippet: r.get(5)?,
             })
         })?;
@@ -663,5 +716,53 @@ mod tests {
 
         idx.forget_voice("Ana").unwrap();
         assert!(idx.voices().unwrap().is_empty());
+    }
+
+    #[test]
+    fn cards_summarize_notes_and_speakers() {
+        let mut idx = index();
+        idx.set_notes(
+            "a",
+            "## Summary\n- Deploy Friday [00:01]\n## Action items\n- [ ] Ana: plan",
+        )
+        .unwrap();
+        idx.save_speakers("a", &[speaker("speaker_1", Some("Ana"), vec![])])
+            .unwrap();
+        let cards = idx.session_cards(None).unwrap();
+        let a = cards.iter().find(|c| c.record.session.id == "a").unwrap();
+        assert_eq!(a.excerpt, "Deploy Friday");
+        assert_eq!((a.actions_open, a.actions_done), (1, 0));
+        assert_eq!(a.speakers, ["Ana"]);
+        let b = cards.iter().find(|c| c.record.session.id == "b").unwrap();
+        assert_eq!(
+            b.excerpt, "Revisamos la migración de la base de datos.",
+            "falls back to the transcript"
+        );
+    }
+
+    #[test]
+    fn search_hits_say_who_spoke() {
+        let mut idx = Index::open_in_memory().unwrap();
+        let mut ana = seg(0, "The deployment moves to Friday.");
+        ana.speaker = Some(SpeakerId("speaker_1".into()));
+        let mut me = seg(2_000, "Deployment checklist is ready.");
+        me.channel = Channel::Mic;
+        idx.save_session(
+            &session("a", "Work", "2026-10-01T10:00:00Z"),
+            "",
+            &[ana, me],
+            "/v/a.md",
+        )
+        .unwrap();
+        idx.save_speakers("a", &[speaker("speaker_1", Some("Ana"), vec![])])
+            .unwrap();
+        let mut who: Vec<String> = idx
+            .search("deployment", 10)
+            .unwrap()
+            .into_iter()
+            .map(|h| h.speaker)
+            .collect();
+        who.sort();
+        assert_eq!(who, ["Ana", "Me"]);
     }
 }

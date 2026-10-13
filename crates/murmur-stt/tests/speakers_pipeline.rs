@@ -35,7 +35,11 @@ fn meeting(dir: &Path, lines: &[(&str, &str)]) -> Vec<f32> {
             .expect("macOS say");
         assert!(status.success());
         let mut reader = hound::WavReader::open(&path).unwrap();
-        samples.extend(reader.samples::<i16>().map(|s| s.unwrap() as f32 / i16::MAX as f32));
+        samples.extend(
+            reader
+                .samples::<i16>()
+                .map(|s| s.unwrap() as f32 / i16::MAX as f32),
+        );
         samples.extend(std::iter::repeat_n(0.0, 16_000 * 7 / 10));
     }
     samples
@@ -48,7 +52,10 @@ fn transcribe(samples: &[f32], transcriber: &mut MeetingTranscriber) -> Vec<Segm
         chunks.extend(segmenter.push(frame));
     }
     chunks.extend(segmenter.flush());
-    chunks.iter().flat_map(|c| transcriber.transcribe(c).unwrap()).collect()
+    chunks
+        .iter()
+        .flat_map(|c| transcriber.transcribe(c).unwrap())
+        .collect()
 }
 
 /// The speaker id of the segment containing `words`.
@@ -73,12 +80,27 @@ fn identifies_and_remembers_speakers() {
     let first = meeting(
         dir.path(),
         &[
-            (ANA, "Good morning everyone, let's start with the deployment status for this sprint."),
-            (BEA, "Buenos días. El despliegue está casi listo, solo falta la revisión de seguridad."),
-            (CARL, "Okay, and do we know when the security review will be finished?"),
-            (ANA, "I talked to the security team yesterday, they expect to finish on Thursday."),
+            (
+                ANA,
+                "Good morning everyone, let's start with the deployment status for this sprint.",
+            ),
+            (
+                BEA,
+                "Buenos días. El despliegue está casi listo, solo falta la revisión de seguridad.",
+            ),
+            (
+                CARL,
+                "Okay, and do we know when the security review will be finished?",
+            ),
+            (
+                ANA,
+                "I talked to the security team yesterday, they expect to finish on Thursday.",
+            ),
             (BEA, "Perfecto, entonces podemos lanzar el viernes por la mañana."),
-            (CARL, "Sounds good to me. I'll update the release notes for the product team."),
+            (
+                CARL,
+                "Sounds good to me. I'll update the release notes for the product team.",
+            ),
         ],
     );
     let mut segments = transcribe(&first, &mut transcriber);
@@ -105,9 +127,18 @@ fn identifies_and_remembers_speakers() {
     let second = meeting(
         dir.path(),
         &[
-            (CARL, "Quick update from my side, the release notes are done and shared."),
-            (ANA, "Excellent. Then the only open item is the security sign off."),
-            (BEA, "Sí, pongamos quince minutos a las nueve para confirmar que todo está en orden."),
+            (
+                CARL,
+                "Quick update from my side, the release notes are done and shared.",
+            ),
+            (
+                ANA,
+                "Excellent. Then the only open item is the security sign off.",
+            ),
+            (
+                BEA,
+                "Sí, pongamos quince minutos a las nueve para confirmar que todo está en orden.",
+            ),
         ],
     );
     let mut segments = transcribe(&second, &mut transcriber);

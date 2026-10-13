@@ -64,7 +64,24 @@ export type SessionRecord = {
   file_path: string;
 };
 
-export type SessionDetail = SessionRecord & { segments: Segment[]; notes: string };
+export type SpeakerInfo = { id: string; name: string; named: boolean };
+
+export type SessionDetail = SessionRecord & {
+  segments: Segment[];
+  notes: string;
+  speakers: SpeakerInfo[];
+};
+
+/** A session as a library card shows it. */
+export type SessionCard = SessionRecord & {
+  excerpt: string;
+  actions_open: number;
+  actions_done: number;
+  /** People on the call, in speaking order. */
+  speakers: string[];
+};
+
+export type VoiceEntry = { name: string; meetings: number; last_seen: string | null };
 
 export type FolderNode = { name: string; path: string; children: FolderNode[] };
 export type Folders = { tree: FolderNode[]; counts: Record<string, number> };
@@ -75,6 +92,8 @@ export type SearchHit = {
   folder: string;
   started_at: string;
   start: number;
+  /** "Me", a speaker's name, "Speaker 2" or "Them". */
+  speaker: string;
   snippet: string;
 };
 
@@ -82,8 +101,14 @@ export type TranscriptEvent =
   | { kind: "segment"; segment: Segment }
   | { kind: "draft"; channel: Channel; start: number; text: string }
   | { kind: "draft_done"; channel: Channel; until: number }
+  | { kind: "status"; message: string }
   | { kind: "error"; message: string }
-  | { kind: "finished"; session: SessionRecord | null };
+  | {
+      kind: "finished";
+      session: SessionRecord | null;
+      segments: Segment[];
+      speakers: SpeakerInfo[];
+    };
 
 export type NewSession = {
   title: string;
@@ -99,7 +124,7 @@ export const ipc = {
 
   listFolders: () => invoke<Folders>("list_folders"),
   createFolder: (path: string) => invoke<void>("create_folder", { path }),
-  listSessions: (folder: string | null) => invoke<SessionRecord[]>("list_sessions", { folder }),
+  listSessions: (folder: string | null) => invoke<SessionCard[]>("list_sessions", { folder }),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
   search: (query: string) => invoke<SearchHit[]>("search", { query }),
   openSessionItem: (id: string, target: "open_file" | "reveal_file" | "reveal_audio") =>
@@ -121,6 +146,12 @@ export const ipc = {
   setApiKey: (name: "anthropic" | "gemini", key: string | null) =>
     invoke<void>("set_api_key", { name, key }),
 
+  renameSpeaker: (sessionId: string, speakerId: string, name: string) =>
+    invoke<void>("rename_speaker", { sessionId, speakerId, name }),
+  listVoices: () => invoke<VoiceEntry[]>("list_voices"),
+  forgetVoice: (name: string) => invoke<void>("forget_voice", { name }),
+  sessionsWithSpeaker: (name: string) => invoke<SessionRecord[]>("sessions_with_speaker", { name }),
+
   setRecordingPaused: (paused: boolean) => invoke<void>("set_recording_paused", { paused }),
   stopRecording: () => invoke<Recording>("stop_recording"),
   recordingStatus: () => invoke<RecorderStatus | null>("recording_status"),
@@ -137,6 +168,17 @@ export function formatDate(iso: string) {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+/** "Today, 10:30 AM", "Yesterday, 3:15 PM" or "Oct 24, 2026". */
+export function formatRelative(iso: string, now = new Date()) {
+  const date = new Date(iso);
+  const day = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((day(now) - day(date)) / 86_400_000);
+  const time = date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (days === 0) return `Today, ${time}`;
+  if (days === 1) return `Yesterday, ${time}`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
 export function formatDuration(ms: number) {

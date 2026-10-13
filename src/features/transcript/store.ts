@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Channel, Segment, SessionRecord, TranscriptEvent } from "../../lib/ipc";
+import type { Channel, Segment, SessionRecord, SpeakerInfo, TranscriptEvent } from "../../lib/ipc";
 
 /** Text of the utterance in progress, from the fast model. */
 export type Draft = { channel: Channel; start: number; text: string };
@@ -11,6 +11,10 @@ type TranscriptState = {
   drafts: Draft[];
   /** Per channel, how far final transcription has reached (ms). Older drafts are stale. */
   finalUntil: Record<Channel, number>;
+  /** Known once the meeting is saved and speakers are identified. */
+  speakers: SpeakerInfo[];
+  /** A slow step after Stop, e.g. "Identifying speakers…". */
+  status: string | null;
   /** True between Stop and the backend's `finished` event. */
   finishing: boolean;
   /** The saved session, once the file is written. */
@@ -21,6 +25,7 @@ type TranscriptState = {
   setUserNotes: (notes: string) => void;
   begin: (title: string) => void;
   setFinishing: (finishing: boolean) => void;
+  setSpeakers: (speakers: SpeakerInfo[]) => void;
   handle: (event: TranscriptEvent) => void;
 };
 
@@ -29,6 +34,8 @@ export const useTranscript = create<TranscriptState>((set) => ({
   segments: [],
   drafts: [],
   finalUntil: { mic: 0, system: 0 },
+  speakers: [],
+  status: null,
   finishing: false,
   saved: null,
   error: null,
@@ -40,12 +47,15 @@ export const useTranscript = create<TranscriptState>((set) => ({
       segments: [],
       drafts: [],
       finalUntil: { mic: 0, system: 0 },
+      speakers: [],
+      status: null,
       finishing: false,
       saved: null,
       error: null,
       userNotes: "",
     }),
   setFinishing: (finishing) => set({ finishing }),
+  setSpeakers: (speakers) => set({ speakers }),
   handle: (event) => {
     switch (event.kind) {
       case "segment":
@@ -72,8 +82,19 @@ export const useTranscript = create<TranscriptState>((set) => ({
       case "error":
         set({ error: event.message });
         break;
+      case "status":
+        set({ status: event.message });
+        break;
       case "finished":
-        set({ finishing: false, saved: event.session, drafts: [] });
+        set((s) => ({
+          finishing: false,
+          status: null,
+          saved: event.session,
+          drafts: [],
+          // Same lines, now labelled with who said them.
+          segments: event.segments.length > 0 ? event.segments : s.segments,
+          speakers: event.speakers,
+        }));
         break;
     }
   },

@@ -5,10 +5,18 @@ import App from "./App";
 import { queryClient } from "./lib/queryClient";
 import "./styles.css";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </React.StrictMode>,
-);
+async function start() {
+  // Dev-only design preview in a plain browser (see src/dev/preview.ts).
+  if (import.meta.env.DEV && new URLSearchParams(location.search).has("preview")) {
+    (await import("./dev/preview")).install();
+  }
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </React.StrictMode>,
+  );
+}
+
+void start();

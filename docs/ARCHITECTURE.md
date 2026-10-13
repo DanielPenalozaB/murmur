@@ -69,7 +69,8 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 | WAV files | `hound` |
 | VAD | `earshot` (pure Rust, no ONNX runtime); chunks cut after 600 ms silence, max 15 s |
 | STT | `whisper-rs` (whisper.cpp, Metal); default model large-v3-turbo q5; `ggml-base` for language ID in mixed-language meetings |
-| Diarization | `sherpa-rs` (sherpa-onnx segmentation + speaker embeddings) |
+| Diarization | official `sherpa-onnx` crate: pyannote segmentation 3.0 + NeMo TitaNet small embeddings (static link) |
+| UI type & icons | Newsreader + Hanken Grotesk via `@fontsource-variable` (bundled, no network), `lucide-react` |
 | HTTP / streaming | `reqwest` + SSE parsing for Ollama, Anthropic, Gemini |
 | Secrets | `security-framework` (macOS Keychain); API keys never reach the webview |
 | Database | `rusqlite` (bundled, FTS5) |
@@ -93,5 +94,9 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
    - Ask works live and on saved sessions ("/btw" prefix accepted, ⌘K to focus); citations jump to the transcript.
    - Notes (summary, decisions, action items, open questions) are written when a recording stops, from the transcript plus the user's own notes, which are kept verbatim under "My notes".
    - Notes live in the session file between `<!-- murmur:notes -->` markers, so regenerating or editing them never touches the transcript or edits made outside those markers.
-5. **Speakers:** post-meeting diarization, rename speakers, voiceprints.
+5. **Speakers:** post-meeting diarization, rename speakers, voiceprints. ✅
+   - After Stop, the system-audio track is diarized; speakers are numbered by first appearance and voices matching a remembered one (cosine ≥ 0.6) are named automatically.
+   - Renaming rewrites the transcript section of the file, replaces the old name in the notes, and remembers the voice (averaged voiceprint per name).
+   - Live drafts: the base model transcribes the utterance in progress every 1.5 s; the final turbo line replaces it.
+   - UI rebuilt from the Google Stitch screens (live session, post-meeting notes, library, search, speaker directory, preferences, new session sheet).
 6. **Polish:** meeting auto-detect, menu-bar recorder, signing + notarization, auto-update.

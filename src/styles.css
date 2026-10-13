@@ -1,76 +1,114 @@
 @import "tailwindcss";
+/* Bundled, so the app never fetches fonts from the network. */
+@import "@fontsource-variable/newsreader";
+@import "@fontsource-variable/newsreader/opsz-italic.css";
+@import "@fontsource-variable/hanken-grotesk";
 
-/* Tokens from the Stitch screens (warm paper + terracotta). Dark values are a first pass. */
+/* Tokens from the Google Stitch design (warm paper + terracotta, Newsreader +
+   Hanken Grotesk). Surfaces are separated by tonal steps rather than borders. */
 @theme {
-  --color-canvas: #fdf6f3;
-  --color-sidebar: #f7efeb;
+  --color-canvas: #fff8f5;
+  --color-sidebar: #fbf2ed;
   --color-surface: #ffffff;
-  --color-muted: #f3e9e4;
-  --color-ink: #1f1a17;
-  --color-ink-soft: #6b625c;
-  --color-line: #ece2dc;
-  --color-accent: #8a3b24;
-  --color-local: #2f6b4f;
-  --font-serif: "Newsreader", ui-serif, Georgia, serif;
-  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --color-muted: #f5ece7;
+  --color-high: #efe6e1;
+  --color-ink: #1f1b18;
+  --color-ink-soft: #53433e;
+  --color-outline: #86736d;
+  --color-line: #ede3de;
+  --color-accent: #814329;
+  --color-on-accent: #ffffff;
+  --color-accent-soft: #ffdbce;
+  --color-on-accent-soft: #5c2410;
+  --color-local: #546251;
+  --color-local-soft: #d8e7d1;
+  --color-on-local-soft: #3d4a3a;
+  --color-warm: #7a4800;
+  --color-warm-soft: #ffdcbc;
+  --font-serif: "Newsreader Variable", ui-serif, Georgia, serif;
+  --font-sans: "Hanken Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-canvas: #151210;
-    --color-sidebar: #1c1815;
-    --color-surface: #221d1a;
-    --color-muted: #2a2420;
-    --color-ink: #f2ebe6;
-    --color-ink-soft: #a89e97;
-    --color-line: #332c27;
-    --color-accent: #d97a5b;
-    --color-local: #5fbf8f;
+    --color-canvas: #171310;
+    --color-sidebar: #1d1814;
+    --color-surface: #231d19;
+    --color-muted: #2b241f;
+    --color-high: #342c26;
+    --color-ink: #f2e9e4;
+    --color-ink-soft: #c9b9b1;
+    --color-outline: #9c8a83;
+    --color-line: #3a312b;
+    --color-accent: #ffb599;
+    --color-on-accent: #370e00;
+    --color-accent-soft: #5c2a17;
+    --color-on-accent-soft: #ffdbce;
+    --color-local: #bccbb6;
+    --color-local-soft: #2f3a2d;
+    --color-on-local-soft: #d8e7d1;
+    --color-warm: #ffb86c;
+    --color-warm-soft: #4a2c00;
   }
 }
 
 body {
-  @apply bg-canvas text-ink font-sans antialiased;
+  @apply bg-canvas font-sans text-[15px] text-ink antialiased;
   -webkit-user-select: none;
   user-select: none;
 }
 
 @layer components {
   .btn-primary {
-    @apply rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-on-accent shadow-sm hover:opacity-90 disabled:opacity-50;
   }
   .btn-ghost {
-    @apply rounded-lg border border-line px-4 py-2 text-sm hover:bg-muted;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg bg-muted px-3.5 py-2 text-[13px] font-medium text-ink hover:bg-high disabled:opacity-50;
   }
-}
-
-@layer components {
+  .btn-quiet {
+    @apply inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] text-ink-soft hover:bg-muted hover:text-ink;
+  }
   .input {
-    @apply rounded-lg border border-line bg-canvas px-3 py-1.5 text-sm outline-none focus:border-accent;
+    @apply rounded-lg border border-transparent bg-muted px-3 py-2 text-sm text-ink outline-none placeholder:text-outline focus:border-accent/40 focus:bg-surface;
+  }
+  .card {
+    @apply rounded-xl bg-surface shadow-[0_2px_8px_rgba(37,33,30,0.04)];
+  }
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-soft;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] font-medium;
+  }
+  .kbd {
+    @apply rounded bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink-soft shadow-sm;
   }
 }
 
 /* Notes and answers rendered from Markdown. */
 @layer components {
   .md {
-    @apply flex flex-col gap-2 leading-relaxed;
+    @apply flex flex-col gap-2.5 leading-relaxed;
   }
   .md h1,
   .md h2 {
-    @apply mt-3 font-serif text-xl first:mt-0;
+    @apply mt-4 font-serif text-2xl first:mt-0;
   }
   .md h3 {
-    @apply mt-2 font-medium;
+    @apply mt-2 font-serif text-lg;
   }
   .md ul,
   .md ol {
-    @apply flex flex-col gap-1 pl-5;
+    @apply flex flex-col gap-1.5 pl-5;
   }
   .md ul {
-    @apply list-disc;
+    @apply list-disc marker:text-accent;
   }
   .md ol {
-    @apply list-decimal;
+    @apply list-decimal marker:text-accent;
+  }
+  .md strong {
+    @apply font-semibold;
   }
   .md li.task-list-item {
     @apply -ml-5 list-none;
@@ -79,6 +117,9 @@ body {
     @apply mr-1.5 accent-accent;
   }
   .md code {
-    @apply rounded bg-muted px-1 text-sm;
+    @apply rounded bg-muted px-1 text-[13px];
+  }
+  .md blockquote {
+    @apply border-l-2 border-warm pl-4 font-serif text-lg italic text-ink-soft;
   }
 }

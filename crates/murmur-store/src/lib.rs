@@ -3,13 +3,15 @@
 
 mod export;
 mod index;
+mod notes;
 mod vault;
 
 pub use export::{
     Turn, file_extension, file_name, group_turns, render_session_file, render_transcript, replace_notes,
     replace_transcript, write_notes, write_session_file, write_transcript,
 };
-pub use index::{Index, SearchHit, SessionRecord, SessionSpeaker, SpeakerInfo, VoiceEntry};
+pub use index::{Index, SearchHit, SessionCard, SessionRecord, SessionSpeaker, SpeakerInfo, VoiceEntry};
+pub use notes::{count_actions, excerpt};
 pub use vault::{FolderNode, create_folder, list_folders, validate_folder};
 
 #[derive(Debug, thiserror::Error)]
