@@ -1,7 +1,10 @@
 //! Finds who spoke when in a 16 kHz mono WAV (float or 16-bit), like the app does with
 //! the system-audio track after a meeting.
 //!
-//!   cargo run --release -p murmur-stt --example diarize -- system.wav [embedding-model.onnx]
+//!   cargo run --release -p murmur-stt --example diarize -- system.wav [embedding-model.onnx] [other.wav]
+//!
+//! With a second recording, prints how similar each speaker's voice is across the two,
+//! which is what remembering voices between meetings relies on.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -17,14 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .join("Library/Application Support/dev.murmur.app/models/speakers");
     let embedding = args.get(1).map_or(EMBEDDING_MODEL, String::as_str);
 
-    let mut reader = hound::WavReader::open(wav)?;
-    let samples: Vec<f32> = match reader.spec().sample_format {
-        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
-        hound::SampleFormat::Int => reader
-            .samples::<i16>()
-            .map(|s| s.map(|v| v as f32 / i16::MAX as f32))
-            .collect::<Result<_, _>>()?,
-    };
+    let samples = read(wav)?;
 
     let t = Instant::now();
     let diarizer = Diarizer::load_with(&models, embedding)?;
@@ -53,5 +49,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect();
         println!("  similarity Speaker {}: {}", i + 1, row.join("  "));
     }
+    if let Some(other) = args.get(2) {
+        let second = diarizer.run(&read(other)?)?;
+        println!("across recordings (rows: this file's speakers, columns: {other}'s):");
+        for (i, a) in result.voiceprints.iter().enumerate() {
+            let row: Vec<String> = second
+                .voiceprints
+                .iter()
+                .map(|b| format!("{:.2}", similarity(a, b)))
+                .collect();
+            println!("  Speaker {}: {}", i + 1, row.join("  "));
+        }
+    }
     Ok(())
+}
+
+fn read(path: &str) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+    let mut reader = hound::WavReader::open(path)?;
+    Ok(match reader.spec().sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>()?,
+        hound::SampleFormat::Int => reader
+            .samples::<i16>()
+            .map(|s| s.map(|v| v as f32 / i16::MAX as f32))
+            .collect::<Result<_, _>>()?,
+    })
 }

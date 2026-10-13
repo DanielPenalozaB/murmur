@@ -10,6 +10,12 @@ const TARGET_PEAK: f32 = 0.891;
 /// Caps the boost at +30 dB so a near-silent track doesn't become loud noise.
 const MAX_GAIN: f32 = 31.6;
 
+/// Reads a whole mono f32 WAV track, e.g. for diarization after the meeting.
+pub fn read_wav(path: &Path) -> Result<Vec<f32>, AudioError> {
+    let mut reader = hound::WavReader::open(path)?;
+    Ok(reader.samples::<f32>().collect::<Result<_, _>>()?)
+}
+
 /// Rescales a mono f32 WAV so its peak sits at −1 dBFS. Streams the file twice (find
 /// the peak, then rewrite through a temp file) so memory stays flat for long meetings.
 /// Returns the applied gain (1.0 when nothing changed).

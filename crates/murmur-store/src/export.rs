@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use murmur_core::{Channel, ExportFormat, Segment, Session};
+use murmur_core::{Channel, ExportFormat, Segment, Session, SpeakerId, SpeakerNames, speaker_label};
 
 use crate::{StoreError, validate_folder};
 
@@ -11,15 +11,17 @@ pub fn file_extension(format: ExportFormat) -> &'static str {
     }
 }
 
-/// Consecutive segments from one channel, merged into a paragraph.
+/// Consecutive segments from one speaker, merged into a paragraph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Turn {
     pub channel: Channel,
+    pub speaker: Option<SpeakerId>,
     pub start: u64,
     pub text: String,
 }
 
-/// Same rule as the UI: same channel and a gap of at most 4 s means one turn.
+/// Same rule as the UI: same channel and speaker, and a gap of at most 4 s, means one
+/// turn.
 pub fn group_turns(segments: &[Segment]) -> Vec<Turn> {
     let mut sorted: Vec<&Segment> = segments.iter().collect();
     sorted.sort_by_key(|s| s.start);
@@ -27,12 +29,17 @@ pub fn group_turns(segments: &[Segment]) -> Vec<Turn> {
     let mut last_end = 0;
     for s in sorted {
         match turns.last_mut() {
-            Some(t) if t.channel == s.channel && s.start.saturating_sub(last_end) <= 4_000 => {
+            Some(t)
+                if t.channel == s.channel
+                    && t.speaker == s.speaker
+                    && s.start.saturating_sub(last_end) <= 4_000 =>
+            {
                 t.text.push(' ');
                 t.text.push_str(s.text.trim());
             }
             _ => turns.push(Turn {
                 channel: s.channel,
+                speaker: s.speaker.clone(),
                 start: s.start,
                 text: s.text.trim().to_string(),
             }),
@@ -76,6 +83,7 @@ const NOTES_START: &str = "<!-- murmur:notes -->";
 const NOTES_END: &str = "<!-- /murmur:notes -->";
 /// In plain text the transcript heading closes the notes.
 const TXT_TRANSCRIPT: &str = "TRANSCRIPT\n\n";
+const MD_TRANSCRIPT: &str = "## Transcript\n\n";
 
 fn notes_block(format: ExportFormat, notes: &str) -> String {
     let notes = notes.trim();
@@ -87,50 +95,65 @@ fn notes_block(format: ExportFormat, notes: &str) -> String {
     }
 }
 
-pub fn render_session_file(session: &Session, notes: &str, segments: &[Segment]) -> String {
-    let turns = group_turns(segments);
+pub fn render_session_file(
+    session: &Session,
+    notes: &str,
+    segments: &[Segment],
+    names: &SpeakerNames,
+) -> String {
     let duration = timestamp(session.duration_ms);
-    match session.format {
-        ExportFormat::Markdown => {
-            let mut out = format!(
-                "---\ntitle: {}\ndate: {}\nduration: \"{}\"\nfolder: {}\nsession: {}\n---\n\n# {}\n\n{}## Transcript\n\n",
-                yaml_string(&session.title),
-                session.started_at,
-                duration,
-                yaml_string(&session.folder),
-                session.id,
-                session.title,
-                notes_block(session.format, notes),
-            );
-            for t in &turns {
-                out.push_str(&format!(
-                    "**{}** · {}  \n{}\n\n",
-                    t.channel.label(),
-                    timestamp(t.start),
-                    t.text
-                ));
+    let header = match session.format {
+        ExportFormat::Markdown => format!(
+            "---\ntitle: {}\ndate: {}\nduration: \"{}\"\nfolder: {}\nsession: {}\n---\n\n# {}\n\n{}{MD_TRANSCRIPT}",
+            yaml_string(&session.title),
+            session.started_at,
+            duration,
+            yaml_string(&session.folder),
+            session.id,
+            session.title,
+            notes_block(session.format, notes),
+        ),
+        ExportFormat::Txt => format!(
+            "{}\n{} · {}\n\n{}{TXT_TRANSCRIPT}",
+            session.title,
+            session.started_at,
+            duration,
+            notes_block(session.format, notes),
+        ),
+    };
+    header + &render_transcript(session.format, segments, names)
+}
+
+/// The transcript section's body: one paragraph per turn.
+pub fn render_transcript(format: ExportFormat, segments: &[Segment], names: &SpeakerNames) -> String {
+    let mut out = String::new();
+    for t in group_turns(segments) {
+        let who = speaker_label(t.channel, t.speaker.as_ref(), names);
+        match format {
+            ExportFormat::Markdown => {
+                out.push_str(&format!("**{who}** · {}  \n{}\n\n", timestamp(t.start), t.text))
             }
-            out
-        }
-        ExportFormat::Txt => {
-            let mut out = format!(
-                "{}\n{} · {}\n\n{}{TXT_TRANSCRIPT}",
-                session.title,
-                session.started_at,
-                duration,
-                notes_block(session.format, notes),
-            );
-            for t in &turns {
-                out.push_str(&format!(
-                    "[{}] {}: {}\n\n",
-                    timestamp(t.start),
-                    t.channel.label(),
-                    t.text
-                ));
-            }
-            out
+            ExportFormat::Txt => out.push_str(&format!("[{}] {who}: {}\n\n", timestamp(t.start), t.text)),
         }
     }
+    out
+}
+
+/// Replaces everything after the transcript heading, e.g. after renaming a speaker.
+/// Notes and anything above the transcript stay as they are.
+pub fn replace_transcript(text: &str, format: ExportFormat, body: &str) -> Result<String, StoreError> {
+    let heading = match format {
+        ExportFormat::Markdown => MD_TRANSCRIPT,
+        ExportFormat::Txt => TXT_TRANSCRIPT,
+    };
+    let at = text.rfind(heading).ok_or(StoreError::Unrecognized)? + heading.len();
+    Ok(format!("{}{body}", &text[..at]))
+}
+
+pub fn write_transcript(path: &Path, format: ExportFormat, body: &str) -> Result<(), StoreError> {
+    let text = std::fs::read_to_string(path)?;
+    std::fs::write(path, replace_transcript(&text, format, body)?)?;
+    Ok(())
 }
 
 /// JSON strings are valid YAML scalars and escape everything that needs it.
@@ -145,6 +168,7 @@ pub fn write_session_file(
     session: &Session,
     notes: &str,
     segments: &[Segment],
+    names: &SpeakerNames,
 ) -> Result<PathBuf, StoreError> {
     validate_folder(&session.folder)?;
     let dir = vault.join(&session.folder);
@@ -158,7 +182,7 @@ pub fn write_session_file(
         path = dir.join(format!("{stem} {n}.{ext}"));
         n += 1;
     }
-    std::fs::write(&path, render_session_file(session, notes, segments))?;
+    std::fs::write(&path, render_session_file(session, notes, segments, names))?;
     Ok(path)
 }
 
@@ -226,6 +250,11 @@ mod tests {
         }
     }
 
+    fn spoken_by(mut s: Segment, id: &str) -> Segment {
+        s.speaker = Some(SpeakerId(id.into()));
+        s
+    }
+
     fn segments() -> Vec<Segment> {
         vec![
             seg(65_000, Channel::Mic, "Sounds good."),
@@ -255,7 +284,12 @@ mod tests {
 
     #[test]
     fn markdown_has_frontmatter_and_transcript() {
-        let md = render_session_file(&session(ExportFormat::Markdown), "", &segments());
+        let md = render_session_file(
+            &session(ExportFormat::Markdown),
+            "",
+            &segments(),
+            &SpeakerNames::new(),
+        );
         assert!(md.starts_with(
             "---\ntitle: \"Sprint: review / Q4\"\ndate: 2026-10-12T10:00:00-05:00\nduration: \"02:05\"\n"
         ));
@@ -264,7 +298,7 @@ mod tests {
 
     #[test]
     fn txt_is_plain() {
-        let txt = render_session_file(&session(ExportFormat::Txt), "", &segments());
+        let txt = render_session_file(&session(ExportFormat::Txt), "", &segments(), &SpeakerNames::new());
         assert!(txt.contains("[00:01] Them: Hi all. Let's start.\n\n[01:05] Me: Sounds good.\n"));
     }
 
@@ -272,8 +306,8 @@ mod tests {
     fn never_overwrites_existing_files() {
         let vault = tempfile::tempdir().unwrap();
         let s = session(ExportFormat::Markdown);
-        let a = write_session_file(vault.path(), &s, "", &segments()).unwrap();
-        let b = write_session_file(vault.path(), &s, "", &segments()).unwrap();
+        let a = write_session_file(vault.path(), &s, "", &segments(), &SpeakerNames::new()).unwrap();
+        let b = write_session_file(vault.path(), &s, "", &segments(), &SpeakerNames::new()).unwrap();
         assert_ne!(a, b);
         assert!(b.ends_with("Work/2026-10-12 Sprint- review - Q4 2.md"));
     }
@@ -282,11 +316,11 @@ mod tests {
     fn notes_are_replaced_without_touching_the_rest() {
         for format in [ExportFormat::Markdown, ExportFormat::Txt] {
             let s = session(format);
-            let empty = render_session_file(&s, "", &segments());
+            let empty = render_session_file(&s, "", &segments(), &SpeakerNames::new());
             let with_notes = replace_notes(&empty, format, "## Summary\n- shipped").unwrap();
             assert_eq!(
                 with_notes,
-                render_session_file(&s, "## Summary\n- shipped", &segments())
+                render_session_file(&s, "## Summary\n- shipped", &segments(), &SpeakerNames::new())
             );
             let edited = with_notes.replace("Hi all.", "Hi everyone.");
             let replaced = replace_notes(&edited, format, "- new").unwrap();
@@ -306,5 +340,44 @@ mod tests {
         assert!(
             updated.contains("# T\n\n<!-- murmur:notes -->\n- note\n<!-- /murmur:notes -->\n\n## Transcript")
         );
+    }
+
+    #[test]
+    fn splits_turns_when_the_speaker_changes() {
+        let segments = [
+            spoken_by(seg(1_000, Channel::System, "Hi."), "speaker_1"),
+            spoken_by(seg(3_000, Channel::System, "Hello."), "speaker_2"),
+            spoken_by(seg(5_000, Channel::System, "Let's start."), "speaker_2"),
+        ];
+        let turns = group_turns(&segments);
+        assert_eq!(turns.len(), 2);
+        assert_eq!(turns[1].text, "Hello. Let's start.");
+    }
+
+    #[test]
+    fn renders_speaker_names() {
+        let segments = [
+            spoken_by(seg(1_000, Channel::System, "Hi."), "speaker_1"),
+            spoken_by(seg(3_000, Channel::System, "Hello."), "speaker_2"),
+        ];
+        let names = SpeakerNames::from([("speaker_1".to_string(), "Ana".to_string())]);
+        let md = render_transcript(ExportFormat::Markdown, &segments, &names);
+        assert_eq!(
+            md,
+            "**Ana** · 00:01  \nHi.\n\n**Speaker 2** · 00:03  \nHello.\n\n"
+        );
+    }
+
+    #[test]
+    fn transcript_is_replaced_without_touching_notes() {
+        for format in [ExportFormat::Markdown, ExportFormat::Txt] {
+            let s = session(format);
+            let segments = [spoken_by(seg(1_000, Channel::System, "Hi."), "speaker_1")];
+            let names = SpeakerNames::from([("speaker_1".to_string(), "Ana".to_string())]);
+            let before = render_session_file(&s, "- Ana says hi", &segments, &SpeakerNames::new());
+            let body = render_transcript(format, &segments, &names);
+            let after = replace_transcript(&before, format, &body).unwrap();
+            assert_eq!(after, render_session_file(&s, "- Ana says hi", &segments, &names));
+        }
     }
 }

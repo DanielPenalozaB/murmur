@@ -1,7 +1,7 @@
 //! Ask (questions about a meeting, live or saved) and notes, through the provider in
 //! settings. Cloud API keys live in the macOS Keychain and never reach the webview.
 
-use murmur_core::{ExportFormat, Segment};
+use murmur_core::{ExportFormat, Segment, SpeakerNames};
 use murmur_llm::{ModelInfo, Prompt, Provider};
 use security_framework::passwords;
 use serde::Serialize;
@@ -35,19 +35,17 @@ fn provider(app: &AppHandle) -> Provider {
     app.state::<SettingsState>().0.lock().unwrap().llm.clone()
 }
 
-/// Segments of a saved session, or of the recording in progress when `id` is `None`.
-fn segments(app: &AppHandle, id: Option<&str>) -> Result<Vec<Segment>, String> {
+/// Segments and speaker names of a saved session, or of the recording in progress
+/// when `id` is `None` (speakers aren't known until it stops).
+fn segments(app: &AppHandle, id: Option<&str>) -> Result<(Vec<Segment>, SpeakerNames), String> {
     match id {
-        None => Ok(app.state::<RecordingState>().live_segments()),
+        None => Ok((app.state::<RecordingState>().live_segments(), SpeakerNames::new())),
         Some(id) => {
-            let found = app
-                .state::<LibraryState>()
-                .0
-                .lock()
-                .unwrap()
-                .get_session(id)
-                .map_err(|e| e.to_string())?;
-            Ok(found.ok_or("session not found")?.1)
+            let library = app.state::<LibraryState>();
+            let index = library.0.lock().unwrap();
+            let found = index.get_session(id).map_err(|e| e.to_string())?;
+            let names = index.speaker_names(id).map_err(|e| e.to_string())?;
+            Ok((found.ok_or("session not found")?.1, names))
         }
     }
 }
@@ -81,11 +79,17 @@ pub async fn ask(
     question: String,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
-    let segments = segments(&app, session_id.as_deref())?;
+    let (segments, names) = segments(&app, session_id.as_deref())?;
     if segments.is_empty() {
         return Err("nothing has been transcribed yet".into());
     }
-    if let Some(text) = run(&app, murmur_llm::ask_prompt(&segments, &question), &on_event).await {
+    if let Some(text) = run(
+        &app,
+        murmur_llm::ask_prompt(&segments, &names, &question),
+        &on_event,
+    )
+    .await
+    {
         let _ = on_event.send(StreamEvent::Done { text });
     }
     Ok(())
@@ -101,11 +105,12 @@ pub async fn generate_notes(
     user_notes: String,
     on_event: Channel<StreamEvent>,
 ) -> Result<(), String> {
-    let segments = segments(&app, Some(&session_id))?;
+    let (segments, names) = segments(&app, Some(&session_id))?;
     if segments.is_empty() {
         return Err("this session has no transcript to write notes from".into());
     }
-    let Some(text) = run(&app, murmur_llm::notes_prompt(&segments, &user_notes), &on_event).await else {
+    let prompt = murmur_llm::notes_prompt(&segments, &names, &user_notes);
+    let Some(text) = run(&app, prompt, &on_event).await else {
         return Ok(());
     };
     let mut notes = strip_code_fence(&text).to_string();

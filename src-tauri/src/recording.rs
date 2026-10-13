@@ -8,7 +8,7 @@ use std::thread;
 
 use murmur_audio::{ChunkSenders, Recorder, RecorderStatus, Recording, SpeechChunk};
 use murmur_core::{Channel as AudioChannel, ExportFormat, Segment, Session};
-use murmur_store::SessionRecord;
+use murmur_store::{SessionRecord, SessionSpeaker, SpeakerInfo};
 use murmur_stt::{MeetingTranscriber, Transcriber, WhisperModel};
 use serde::Serialize;
 use tauri::ipc::Channel;
@@ -71,9 +71,16 @@ pub enum TranscriptEvent {
     Error {
         message: String,
     },
-    /// Everything is transcribed and the session file is written and indexed.
+    /// A step after Stop that takes a while, e.g. identifying speakers.
+    Status {
+        message: String,
+    },
+    /// Everything is transcribed and the session file is written and indexed. Carries
+    /// the final segments, now labelled with speakers.
     Finished {
         session: Option<SessionRecord>,
+        segments: Vec<Segment>,
+        speakers: Vec<SpeakerInfo>,
     },
 }
 
@@ -371,31 +378,82 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
             .duration
             .recv()
             .unwrap_or_else(|_| segments.iter().map(|s| s.end).max().unwrap_or(0));
-        let saved = save_session(&app, &w.session, &segments);
+        if segments.iter().any(|s| s.channel == AudioChannel::System) {
+            let _ = w.events.send(TranscriptEvent::Status {
+                message: "Identifying speakers…".into(),
+            });
+        }
+        let speakers = crate::speakers::identify(&app, &w.dir, &mut segments).unwrap_or_else(|e| {
+            // The transcript is still worth saving with "Them" labels.
+            tracing::warn!("speaker identification failed: {e}");
+            let _ = w.events.send(TranscriptEvent::Error {
+                message: format!("Couldn't tell speakers apart: {e}"),
+            });
+            Vec::new()
+        });
+        if !speakers.is_empty()
+            && let Err(e) = rewrite_jsonl(&log_path, &segments)
+        {
+            tracing::error!("rewrite transcript: {e}");
+        }
+        let saved = save_session(&app, &w.session, &segments, &speakers);
         if let Err(message) = &saved {
             let _ = w.events.send(TranscriptEvent::Error {
                 message: message.clone(),
             });
         }
-        let _ = w.events.send(TranscriptEvent::Finished { session: saved.ok() });
+        let speakers = speakers
+            .iter()
+            .map(|s| SpeakerInfo {
+                id: s.id.clone(),
+                name: s
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| murmur_core::SpeakerId(s.id.clone()).default_name()),
+                named: s.name.is_some(),
+            })
+            .collect();
+        let _ = w.events.send(TranscriptEvent::Finished {
+            session: saved.ok(),
+            segments,
+            speakers,
+        });
     });
 }
 
-fn save_session(app: &AppHandle, session: &Session, segments: &[Segment]) -> Result<SessionRecord, String> {
+fn save_session(
+    app: &AppHandle,
+    session: &Session,
+    segments: &[Segment],
+    speakers: &[SessionSpeaker],
+) -> Result<SessionRecord, String> {
     let vault = app.state::<SettingsState>().0.lock().unwrap().vault_path.clone();
-    let path = murmur_store::write_session_file(&vault, session, "", segments)
+    let names = crate::speakers::names_of(speakers);
+    let path = murmur_store::write_session_file(&vault, session, "", segments, &names)
         .map_err(|e| format!("could not write the session file: {e}"))?;
     let file_path = path.to_string_lossy().into_owned();
-    app.state::<LibraryState>()
-        .0
-        .lock()
-        .unwrap()
+    let library = app.state::<LibraryState>();
+    let mut index = library.0.lock().unwrap();
+    index
         .save_session(session, "", segments, &file_path)
         .map_err(|e| format!("could not index the session: {e}"))?;
+    index
+        .save_speakers(&session.id, speakers)
+        .map_err(|e| format!("could not save speakers: {e}"))?;
     Ok(SessionRecord {
         session: session.clone(),
         file_path,
     })
+}
+
+/// Replaces the audio folder's transcript log with the speaker-labelled segments.
+fn rewrite_jsonl(path: &Path, segments: &[Segment]) -> std::io::Result<()> {
+    let mut out = Vec::new();
+    for s in segments {
+        serde_json::to_writer(&mut out, s)?;
+        out.push(b'\n');
+    }
+    std::fs::write(path, out)
 }
 
 fn append_jsonl(path: &Path, segment: &Segment) -> std::io::Result<()> {

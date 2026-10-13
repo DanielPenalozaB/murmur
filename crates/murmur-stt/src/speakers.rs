@@ -20,6 +20,11 @@ pub const SEGMENTATION_MODEL: &str = "sherpa-onnx-pyannote-segmentation-3-0/mode
 /// TitaNet separated all three voices in a test where WeSpeaker merged two.
 pub const EMBEDDING_MODEL: &str = "nemo_en_titanet_small.onnx";
 
+/// Similarity above which a speaker counts as a remembered voice. The same synthetic
+/// voice scored 0.96 across two recordings and different voices at most 0.37; real
+/// voices through different mics vary more.
+pub const VOICE_MATCH_THRESHOLD: f32 = 0.6;
+
 /// Cosine distance under which two stretches of speech count as the same person.
 const CLUSTER_THRESHOLD: f32 = 0.5;
 /// Audio used per speaker for their voiceprint, longest turns first.
@@ -214,6 +219,41 @@ pub fn assign_speakers(segments: &mut [Segment], turns: &[SpeakerTurn]) {
     }
 }
 
+/// Assigns speakers to system-audio segments, then numbers them by first appearance
+/// in the transcript, dropping speakers no segment was assigned to (noise, or speech
+/// Whisper didn't transcribe). Returns the voiceprints of the remaining speakers:
+/// index `i` belongs to `speaker_{i+1}`.
+pub fn label_segments(segments: &mut [Segment], diarization: &Diarization) -> Vec<Vec<f32>> {
+    assign_speakers(segments, &diarization.turns);
+    let mut order: Vec<String> = Vec::new();
+    let mut sorted: Vec<&Segment> = segments.iter().collect();
+    sorted.sort_by_key(|s| s.start);
+    for s in sorted {
+        if let Some(id) = &s.speaker
+            && !order.contains(&id.0)
+        {
+            order.push(id.0.clone());
+        }
+    }
+    for s in segments.iter_mut() {
+        if let Some(id) = &s.speaker {
+            let n = order.iter().position(|o| *o == id.0).expect("collected above");
+            s.speaker = Some(speaker_id(n));
+        }
+    }
+    order
+        .iter()
+        .map(|old| {
+            let index: usize = old
+                .trim_start_matches("speaker_")
+                .parse::<usize>()
+                .expect("our own ids")
+                - 1;
+            diarization.voiceprints.get(index).cloned().unwrap_or_default()
+        })
+        .collect()
+}
+
 /// Matches this meeting's speakers to remembered voices. Each known name is used at
 /// most once, best match first. Returns a name (or `None`) per speaker.
 pub fn match_voices(
@@ -278,6 +318,23 @@ mod tests {
         assert_eq!(segments[1].speaker, Some(speaker_id(1)));
         assert_eq!(segments[2].speaker, None, "the mic is always the user");
         assert_eq!(segments[3].speaker, None, "no turn overlaps");
+    }
+
+    #[test]
+    fn numbers_speakers_by_first_appearance_in_the_transcript() {
+        // Diarization found three speakers, but speaker index 0 only made noise.
+        let diarization = Diarization {
+            turns: vec![turn(0, 1_000, 0), turn(1_000, 5_000, 2), turn(5_000, 9_000, 1)],
+            voiceprints: vec![vec![0.0], vec![1.0], vec![2.0]],
+        };
+        let mut segments = [
+            seg(5_500, 8_500, Channel::System),
+            seg(1_500, 4_500, Channel::System),
+        ];
+        let voiceprints = label_segments(&mut segments, &diarization);
+        assert_eq!(segments[1].speaker, Some(speaker_id(0)), "talks first");
+        assert_eq!(segments[0].speaker, Some(speaker_id(1)));
+        assert_eq!(voiceprints, [vec![2.0], vec![1.0]]);
     }
 
     #[test]

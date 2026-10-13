@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use murmur_core::{Channel, ExportFormat, Segment, Session};
+use murmur_core::{Channel, ExportFormat, Segment, Session, SpeakerId, SpeakerNames};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 
@@ -24,6 +24,36 @@ pub struct SearchHit {
     pub start: u64,
     /// Matching text with hits wrapped in `[` `]`.
     pub snippet: String,
+}
+
+/// A speaker found in one session's system audio.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionSpeaker {
+    /// `speaker_1`, `speaker_2`…
+    pub id: String,
+    /// Set when the user named them, or when their voice matched a remembered one.
+    pub name: Option<String>,
+    /// L2-normalized embedding; empty when there wasn't enough audio.
+    pub voiceprint: Vec<f32>,
+}
+
+/// A speaker as shown in the app.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SpeakerInfo {
+    pub id: String,
+    /// The name, or "Speaker N" until they're named.
+    pub name: String,
+    pub named: bool,
+}
+
+/// A remembered voice, for the speaker directory.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct VoiceEntry {
+    pub name: String,
+    /// Meetings this person was identified in.
+    pub meetings: u32,
+    /// `started_at` of the latest of those meetings.
+    pub last_seen: Option<String>,
 }
 
 pub struct Index {
@@ -60,6 +90,22 @@ CREATE TRIGGER segments_ad AFTER DELETE ON segments BEGIN
 END;
 ";
 
+const SPEAKERS_SCHEMA: &str = "
+CREATE TABLE session_speakers (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    speaker_id TEXT NOT NULL,
+    name       TEXT,
+    voiceprint BLOB NOT NULL,
+    PRIMARY KEY (session_id, speaker_id)
+);
+-- One averaged voiceprint per named person, used to name them in later meetings.
+CREATE TABLE voices (
+    name       TEXT PRIMARY KEY,
+    voiceprint BLOB NOT NULL,
+    samples    INTEGER NOT NULL
+);
+";
+
 impl Index {
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         Self::init(Connection::open(path)?)
@@ -80,6 +126,11 @@ impl Index {
             db.execute_batch(
                 "BEGIN; ALTER TABLE sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''; PRAGMA user_version = 2; COMMIT;",
             )?;
+        }
+        if version < 3 {
+            db.execute_batch(&format!(
+                "BEGIN; {SPEAKERS_SCHEMA} PRAGMA user_version = 3; COMMIT;"
+            ))?;
         }
         Ok(Index { db })
     }
@@ -140,6 +191,156 @@ impl Index {
         self.db
             .execute("UPDATE sessions SET notes = ?2 WHERE id = ?1", params![id, notes])?;
         Ok(())
+    }
+
+    /// Replaces the speakers found in a session.
+    pub fn save_speakers(&mut self, session_id: &str, speakers: &[SessionSpeaker]) -> Result<(), StoreError> {
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM session_speakers WHERE session_id = ?1", [session_id])?;
+        for s in speakers {
+            tx.execute(
+                "INSERT INTO session_speakers (session_id, speaker_id, name, voiceprint) VALUES (?1, ?2, ?3, ?4)",
+                params![session_id, s.id, s.name, to_blob(&s.voiceprint)],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Speakers of a session in order (Speaker 1 first).
+    pub fn speakers(&self, session_id: &str) -> Result<Vec<SpeakerInfo>, StoreError> {
+        let mut stmt = self.db.prepare(
+            "SELECT speaker_id, name FROM session_speakers WHERE session_id = ?1
+             ORDER BY CAST(SUBSTR(speaker_id, 9) AS INTEGER)",
+        )?;
+        let rows = stmt.query_map([session_id], |r| {
+            let id: String = r.get(0)?;
+            let name: Option<String> = r.get(1)?;
+            Ok(SpeakerInfo {
+                name: name
+                    .clone()
+                    .unwrap_or_else(|| SpeakerId(id.clone()).default_name()),
+                named: name.is_some(),
+                id,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Names the user (or voice matching) gave this session's speakers.
+    pub fn speaker_names(&self, session_id: &str) -> Result<SpeakerNames, StoreError> {
+        Ok(self
+            .speakers(session_id)?
+            .into_iter()
+            .filter(|s| s.named)
+            .map(|s| (s.id, s.name))
+            .collect())
+    }
+
+    /// Names a session's speaker and returns their voiceprint (empty if unknown).
+    pub fn rename_speaker(
+        &self,
+        session_id: &str,
+        speaker_id: &str,
+        name: &str,
+    ) -> Result<Vec<f32>, StoreError> {
+        let changed = self.db.execute(
+            "UPDATE session_speakers SET name = ?3 WHERE session_id = ?1 AND speaker_id = ?2",
+            params![session_id, speaker_id, name],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::NotFound(format!("speaker {speaker_id}")));
+        }
+        let blob: Vec<u8> = self.db.query_row(
+            "SELECT voiceprint FROM session_speakers WHERE session_id = ?1 AND speaker_id = ?2",
+            params![session_id, speaker_id],
+            |r| r.get(0),
+        )?;
+        Ok(from_blob(&blob))
+    }
+
+    /// Adds a voiceprint to a person's averaged voice, creating it if new.
+    pub fn remember_voice(&self, name: &str, voiceprint: &[f32]) -> Result<(), StoreError> {
+        if voiceprint.is_empty() {
+            return Ok(());
+        }
+        let existing: Option<(Vec<u8>, i64)> = self
+            .db
+            .query_row(
+                "SELECT voiceprint, samples FROM voices WHERE name = ?1",
+                [name],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let (merged, samples) = match existing {
+            Some((blob, n)) => {
+                let old = from_blob(&blob);
+                if old.len() != voiceprint.len() {
+                    (voiceprint.to_vec(), 1)
+                } else {
+                    let sum: Vec<f32> = old
+                        .iter()
+                        .zip(voiceprint)
+                        .map(|(a, b)| a * n as f32 + b)
+                        .collect();
+                    (normalized(sum), n + 1)
+                }
+            }
+            None => (voiceprint.to_vec(), 1),
+        };
+        self.db.execute(
+            "INSERT INTO voices (name, voiceprint, samples) VALUES (?1, ?2, ?3)
+             ON CONFLICT(name) DO UPDATE SET voiceprint = excluded.voiceprint, samples = excluded.samples",
+            params![name, to_blob(&merged), samples],
+        )?;
+        Ok(())
+    }
+
+    /// Every remembered voice, for matching new meetings' speakers.
+    pub fn voices(&self) -> Result<Vec<(String, Vec<f32>)>, StoreError> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT name, voiceprint FROM voices ORDER BY name")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, from_blob(&r.get::<_, Vec<u8>>(1)?)))
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Remembered voices with how many meetings each person was in.
+    pub fn voice_directory(&self) -> Result<Vec<VoiceEntry>, StoreError> {
+        let mut stmt = self.db.prepare(
+            "SELECT v.name, COUNT(DISTINCT ss.session_id), MAX(s.started_at)
+             FROM voices v
+             LEFT JOIN session_speakers ss ON ss.name = v.name
+             LEFT JOIN sessions s ON s.id = ss.session_id
+             GROUP BY v.name ORDER BY COUNT(DISTINCT ss.session_id) DESC, v.name",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(VoiceEntry {
+                name: r.get(0)?,
+                meetings: r.get(1)?,
+                last_seen: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Forgets a voice so it's no longer matched. Past sessions keep the name.
+    pub fn forget_voice(&self, name: &str) -> Result<(), StoreError> {
+        self.db.execute("DELETE FROM voices WHERE name = ?1", [name])?;
+        Ok(())
+    }
+
+    /// Sessions a named person spoke in, newest first.
+    pub fn sessions_with_speaker(&self, name: &str) -> Result<Vec<SessionRecord>, StoreError> {
+        let mut stmt = self.db.prepare(
+            "SELECT DISTINCT s.id, s.title, s.folder, s.started_at, s.duration_ms, s.format, s.file_path
+             FROM sessions s JOIN session_speakers ss ON ss.session_id = s.id
+             WHERE ss.name = ?1 ORDER BY s.started_at DESC",
+        )?;
+        let rows = stmt.query_map([name], row_to_record)?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// Sessions newest first, optionally limited to one folder (subfolders excluded).
@@ -226,6 +427,26 @@ fn to_fts_query(query: &str) -> Option<String> {
         .map(|w| format!("\"{w}\"*"))
         .collect();
     (!terms.is_empty()).then(|| terms.join(" "))
+}
+
+fn to_blob(v: &[f32]) -> Vec<u8> {
+    v.iter().flat_map(|x| x.to_le_bytes()).collect()
+}
+
+fn from_blob(b: &[u8]) -> Vec<f32> {
+    b.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes(*c))
+        .collect()
+}
+
+fn normalized(mut v: Vec<f32>) -> Vec<f32> {
+    let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 0.0 {
+        v.iter_mut().for_each(|x| *x /= norm);
+    }
+    v
 }
 
 fn row_to_record(r: &rusqlite::Row) -> rusqlite::Result<SessionRecord> {
@@ -383,5 +604,64 @@ mod tests {
         }
         let idx = Index::open(&path).unwrap();
         assert_eq!(idx.notes("none").unwrap(), "");
+    }
+
+    fn speaker(id: &str, name: Option<&str>, voiceprint: Vec<f32>) -> SessionSpeaker {
+        SessionSpeaker {
+            id: id.into(),
+            name: name.map(String::from),
+            voiceprint,
+        }
+    }
+
+    #[test]
+    fn stores_and_renames_session_speakers() {
+        let mut idx = index();
+        idx.save_speakers(
+            "a",
+            &[
+                speaker("speaker_2", None, vec![0.0, 1.0]),
+                speaker("speaker_1", Some("Ana"), vec![1.0, 0.0]),
+                speaker("speaker_10", None, vec![]),
+            ],
+        )
+        .unwrap();
+        let names: Vec<_> = idx.speakers("a").unwrap().into_iter().map(|s| s.name).collect();
+        assert_eq!(names, ["Ana", "Speaker 2", "Speaker 10"], "numeric order");
+        assert_eq!(idx.speaker_names("a").unwrap().len(), 1);
+
+        assert_eq!(
+            idx.rename_speaker("a", "speaker_2", "Bo").unwrap(),
+            vec![0.0, 1.0]
+        );
+        assert_eq!(idx.speaker_names("a").unwrap()["speaker_2"], "Bo");
+        assert!(idx.rename_speaker("a", "speaker_9", "X").is_err());
+    }
+
+    #[test]
+    fn averages_remembered_voices() {
+        let mut idx = index();
+        idx.remember_voice("Ana", &[1.0, 0.0]).unwrap();
+        idx.remember_voice("Ana", &[0.0, 1.0]).unwrap();
+        idx.remember_voice("Ignored", &[]).unwrap();
+        let voices = idx.voices().unwrap();
+        assert_eq!(voices.len(), 1);
+        let v = &voices[0].1;
+        assert!(
+            (v[0] - v[1]).abs() < 1e-6 && (v[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3,
+            "{v:?}"
+        );
+
+        idx.save_speakers("a", &[speaker("speaker_1", Some("Ana"), vec![1.0, 0.0])])
+            .unwrap();
+        idx.save_speakers("b", &[speaker("speaker_1", Some("Ana"), vec![1.0, 0.0])])
+            .unwrap();
+        let dir = idx.voice_directory().unwrap();
+        assert_eq!(dir[0].meetings, 2);
+        assert_eq!(dir[0].last_seen.as_deref(), Some("2026-10-05T10:00:00Z"));
+        assert_eq!(idx.sessions_with_speaker("Ana").unwrap().len(), 2);
+
+        idx.forget_voice("Ana").unwrap();
+        assert!(idx.voices().unwrap().is_empty());
     }
 }

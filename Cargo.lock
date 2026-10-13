@@ -2557,6 +2557,7 @@ dependencies = [
  "murmur-core",
  "serde",
  "sherpa-onnx",
+ "tempfile",
  "thiserror 2.0.21",
  "whisper-rs",
 ]

@@ -9,7 +9,7 @@ mod client;
 
 pub use client::{ModelInfo, list_models, stream, warm_up};
 
-use murmur_core::{Channel, Segment};
+use murmur_core::{Segment, SpeakerNames, speaker_label};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error)]
@@ -97,11 +97,11 @@ impl Prompt {
     }
 }
 
-const SPEAKERS: &str = "In the transcript, \"Me\" is the user and \"Them\" is everyone else on the call \
-(possibly several people). Lines are `[mm:ss] Speaker: text`.";
+const SPEAKERS: &str = "Lines are `[mm:ss] Speaker: text`. \"Me\" is the user. Other speakers are people on \
+the call: by name, as \"Speaker 2\" when not yet named, or \"Them\" when unknown (possibly several people).";
 
 /// A question asked during or after the meeting ("/btw …").
-pub fn ask_prompt(segments: &[Segment], question: &str) -> Prompt {
+pub fn ask_prompt(segments: &[Segment], names: &SpeakerNames, question: &str) -> Prompt {
     Prompt {
         system: format!(
             "You answer questions about a meeting, often while it is still in progress. {SPEAKERS} \
@@ -109,7 +109,7 @@ Use only the transcript. Cite the timestamps you rely on, like [12:04]. Be brief
 sentences or a few bullets. Answer in the language of the question. If the transcript doesn't \
 cover it, say so plainly."
         ),
-        transcript: render_transcript(segments, channel_label),
+        transcript: render_transcript(segments, names),
         instruction: format!("Question: {}", question.trim()),
         max_tokens: 2_000,
     }
@@ -117,7 +117,7 @@ cover it, say so plainly."
 
 /// Post-meeting notes. `user_notes` are what the user typed during the meeting; every
 /// point in them must be covered.
-pub fn notes_prompt(segments: &[Segment], user_notes: &str) -> Prompt {
+pub fn notes_prompt(segments: &[Segment], names: &SpeakerNames, user_notes: &str) -> Prompt {
     let instruction = if user_notes.trim().is_empty() {
         "Write the notes for this meeting.".to_string()
     } else {
@@ -140,14 +140,14 @@ End each bullet with the timestamp it comes from, like [12:04]. Be specific (nam
 dates). Never invent anything that isn't in the transcript. Write in the language most of the \
 meeting was held in. Output only the notes, with no preamble."
         ),
-        transcript: render_transcript(segments, channel_label),
+        transcript: render_transcript(segments, names),
         instruction,
         max_tokens: 4_000,
     }
 }
 
-/// Renders segments as `[mm:ss] Label: text` lines.
-pub fn render_transcript(segments: &[Segment], label_for: impl Fn(&Segment) -> String) -> String {
+/// Renders segments as `[mm:ss] Speaker: text` lines.
+pub fn render_transcript(segments: &[Segment], names: &SpeakerNames) -> String {
     let mut out = String::new();
     for s in segments {
         let secs = s.start / 1000;
@@ -155,24 +155,17 @@ pub fn render_transcript(segments: &[Segment], label_for: impl Fn(&Segment) -> S
             "[{:02}:{:02}] {}: {}\n",
             secs / 60,
             secs % 60,
-            label_for(s),
+            speaker_label(s.channel, s.speaker.as_ref(), names),
             s.text.trim()
         ));
     }
     out
 }
 
-/// Default label when diarization hasn't run yet.
-pub fn channel_label(s: &Segment) -> String {
-    match (&s.channel, &s.speaker) {
-        (_, Some(id)) => id.0.clone(),
-        (Channel::Mic, None) => "Me".into(),
-        (Channel::System, None) => "Them".into(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use murmur_core::{Channel, SpeakerId};
+
     use super::*;
 
     fn seg(start: u64, channel: Channel, text: &str) -> Segment {
@@ -186,23 +179,27 @@ mod tests {
     }
 
     #[test]
-    fn renders_timestamps_and_channel_labels() {
+    fn renders_timestamps_and_speaker_names() {
+        let mut ana = seg(70_000, Channel::System, "hola");
+        ana.speaker = Some(SpeakerId("speaker_1".into()));
+        let names = SpeakerNames::from([("speaker_1".to_string(), "Ana".to_string())]);
         let t = render_transcript(
             &[
                 seg(5_000, Channel::Mic, " hi "),
                 seg(65_000, Channel::System, "hello"),
+                ana,
             ],
-            channel_label,
+            &names,
         );
-        assert_eq!(t, "[00:05] Me: hi\n[01:05] Them: hello\n");
+        assert_eq!(t, "[00:05] Me: hi\n[01:05] Them: hello\n[01:10] Ana: hola\n");
     }
 
     #[test]
     fn transcript_prefix_is_stable_as_it_grows() {
         let first = [seg(1_000, Channel::Mic, "a")];
         let later = [seg(1_000, Channel::Mic, "a"), seg(2_000, Channel::System, "b")];
-        let a = ask_prompt(&first, "q1");
-        let b = ask_prompt(&later, "q2");
+        let a = ask_prompt(&first, &SpeakerNames::new(), "q1");
+        let b = ask_prompt(&later, &SpeakerNames::new(), "q2");
         assert_eq!(a.system, b.system);
         assert!(
             b.transcript_block()
@@ -213,9 +210,13 @@ mod tests {
     #[test]
     fn notes_prompt_includes_user_notes_only_when_present() {
         let segments = [seg(1_000, Channel::Mic, "a")];
-        assert!(!notes_prompt(&segments, "  ").instruction.contains("user_notes"));
         assert!(
-            notes_prompt(&segments, "ship friday")
+            !notes_prompt(&segments, &SpeakerNames::new(), "  ")
+                .instruction
+                .contains("user_notes")
+        );
+        assert!(
+            notes_prompt(&segments, &SpeakerNames::new(), "ship friday")
                 .instruction
                 .contains("ship friday")
         );

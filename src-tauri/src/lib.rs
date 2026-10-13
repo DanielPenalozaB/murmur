@@ -2,6 +2,7 @@ mod assistant;
 mod library;
 mod recording;
 mod settings;
+mod speakers;
 
 use std::sync::Mutex;
 
@@ -30,6 +31,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(recording::RecordingState::default())
+        .manage(speakers::SpeakersState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
@@ -57,6 +59,10 @@ pub fn run() {
             assistant::list_models,
             assistant::api_keys,
             assistant::set_api_key,
+            speakers::rename_speaker,
+            speakers::list_voices,
+            speakers::forget_voice,
+            speakers::sessions_with_speaker,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

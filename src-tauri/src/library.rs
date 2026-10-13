@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use murmur_core::Segment;
-use murmur_store::{FolderNode, Index, SearchHit, SessionRecord};
+use murmur_store::{FolderNode, Index, SearchHit, SessionRecord, SpeakerInfo};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
@@ -24,6 +24,7 @@ pub struct SessionDetail {
     record: SessionRecord,
     segments: Vec<Segment>,
     notes: String,
+    speakers: Vec<SpeakerInfo>,
 }
 
 pub fn open_index(app: &AppHandle) -> Result<Index, String> {
@@ -73,10 +74,12 @@ pub fn get_session(id: String, library: State<LibraryState>) -> Result<SessionDe
     let found = index.get_session(&id).map_err(|e| e.to_string())?;
     let (record, segments) = found.ok_or("session not found")?;
     let notes = index.notes(&id).map_err(|e| e.to_string())?;
+    let speakers = index.speakers(&id).map_err(|e| e.to_string())?;
     Ok(SessionDetail {
         record,
         segments,
         notes,
+        speakers,
     })
 }
 

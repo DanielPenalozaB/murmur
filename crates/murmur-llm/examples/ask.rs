@@ -38,9 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let key = std::env::var("MURMUR_API_KEY").ok();
     let prompt = if question == "--notes" {
-        notes_prompt(&segments, "")
+        notes_prompt(&segments, &Default::default(), "")
     } else {
-        ask_prompt(&segments, question)
+        ask_prompt(&segments, &Default::default(), question)
     };
 
     if std::env::var_os("MURMUR_WARM").is_some() {
