@@ -1,8 +1,10 @@
 //! Speech-to-text (whisper.cpp via `whisper-rs`, Metal). Post-meeting speaker
 //! diarization (sherpa-onnx) lands here in milestone 5.
 
+mod language;
 mod whisper;
 
+pub use language::{LanguageDetector, MeetingTranscriber};
 pub use whisper::{WhisperModel, WhisperTranscriber};
 
 use murmur_audio::SpeechChunk;

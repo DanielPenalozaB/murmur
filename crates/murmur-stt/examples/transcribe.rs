@@ -1,24 +1,28 @@
 //! Runs a 16 kHz mono WAV through the VAD segmenter and Whisper, like a live session.
 //!
-//!   cargo run --release -p murmur-stt --example transcribe -- recording.wav [lang]
+//!   cargo run --release -p murmur-stt --example transcribe -- recording.wav [en,es]
 
 use std::path::PathBuf;
 use std::time::Instant;
 
 use murmur_audio::Segmenter;
 use murmur_core::Channel;
-use murmur_stt::{Transcriber, WhisperModel};
+use murmur_stt::{MeetingTranscriber, Transcriber, WhisperModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args().skip(1);
-    let wav = PathBuf::from(args.next().ok_or("usage: transcribe <file.wav> [lang]")?);
-    let language = args.next();
-    let model = dirs_model();
+    let wav = PathBuf::from(args.next().ok_or("usage: transcribe <file.wav> [en,es]")?);
+    let languages: Vec<String> = args
+        .next()
+        .map_or(vec![], |l| l.split(',').map(String::from).collect());
+    let models =
+        PathBuf::from(std::env::var("HOME")?).join("Library/Application Support/dev.murmur.app/models");
 
     let t = Instant::now();
-    let model = WhisperModel::load(&model)?;
-    println!("model loaded in {:?}", t.elapsed());
-    let mut transcriber = model.transcriber(language)?;
+    let model = WhisperModel::load(&models.join("ggml-large-v3-turbo-q5_0.bin"))?;
+    let detector = WhisperModel::load(&models.join("ggml-base.bin"))?;
+    println!("models loaded in {:?}", t.elapsed());
+    let mut transcriber = MeetingTranscriber::new(&model, Some(&detector), &languages)?;
 
     let samples: Vec<f32> = hound::WavReader::open(&wav)?
         .into_samples::<f32>()
@@ -39,9 +43,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("   ({audio_ms} ms audio in {:?})", t.elapsed());
     }
     Ok(())
-}
-
-fn dirs_model() -> PathBuf {
-    let home = std::env::var("HOME").expect("HOME");
-    PathBuf::from(home).join("Library/Application Support/dev.murmur.app/models/ggml-large-v3-turbo-q5_0.bin")
 }

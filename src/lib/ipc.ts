@@ -10,6 +10,8 @@ export type Settings = {
   vault_path: string;
   default_format: ExportFormat;
   last_folder: string;
+  /** ISO codes. Empty: detect per chunk. One: forced. Several: follow switches. */
+  languages: string[];
 };
 
 export type RecorderStatus = {
@@ -66,7 +68,12 @@ export type TranscriptEvent =
   | { kind: "error"; message: string }
   | { kind: "finished"; session: SessionRecord | null };
 
-export type NewSession = { title: string; folder: string; format: ExportFormat };
+export type NewSession = {
+  title: string;
+  folder: string;
+  format: ExportFormat;
+  languages: string[];
+};
 
 export const ipc = {
   appInfo: () => invoke<AppInfo>("app_info"),

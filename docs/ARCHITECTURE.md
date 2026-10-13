@@ -68,7 +68,7 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 | Resampling | AVAudioConverter (in the helper) |
 | WAV files | `hound` |
 | VAD | `earshot` (pure Rust, no ONNX runtime); chunks cut after 600 ms silence, max 15 s |
-| STT | `whisper-rs` (whisper.cpp, Metal); default model large-v3-turbo q5 |
+| STT | `whisper-rs` (whisper.cpp, Metal); default model large-v3-turbo q5; `ggml-base` for language ID in mixed-language meetings |
 | Diarization | `sherpa-rs` (sherpa-onnx segmentation + speaker embeddings) |
 | HTTP / streaming | `reqwest` + SSE parsing for Ollama, Anthropic, Gemini |
 | Secrets | `keyring` (macOS Keychain); API keys never reach the webview |
@@ -81,12 +81,14 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 - [ADR-002](adr/002-system-audio-swift-helper.md): system audio via a Swift sidecar
 - [ADR-003](adr/003-files-are-source-of-truth.md): Markdown/TXT files are the source of truth, SQLite is an index
 - [ADR-004](adr/004-ask-prompt-layout.md): Ask uses an append-only transcript prefix
+- [ADR-005](adr/005-mixed-language-meetings.md): meetings that mix languages are split at language switches
 
 ## Milestones
 
 1. **Capture:** mic + system audio → two WAV files, with start/pause/stop. ✅ (in-app permissions screen still to do)
 2. **Live transcript:** VAD → whisper → segments streamed to the UI. ✅ (typed IPC via tauri-specta deferred)
 3. **Library:** folders, sessions, SQLite index (FTS5), Markdown/TXT export. ✅ (notes editor moves to milestone 4 with AI notes; re-indexing files edited outside the app still to do)
+   - Mixed-language meetings (English ↔ Spanish switches) ✅
 4. **Intelligence:** Ask panel (streaming answers with timestamp citations), post-meeting summary, provider settings + Keychain.
 5. **Speakers:** post-meeting diarization, rename speakers, voiceprints.
 6. **Polish:** meeting auto-detect, menu-bar recorder, signing + notarization, auto-update.

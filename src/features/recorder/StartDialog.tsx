@@ -3,6 +3,21 @@ import { useEffect, useRef, useState } from "react";
 import { type ExportFormat, ipc, type NewSession } from "../../lib/ipc";
 import { flattenFolders } from "../library/folders";
 
+const LANGUAGES = [
+  ["en", "English"],
+  ["es", "Spanish"],
+  ["pt", "Portuguese"],
+  ["fr", "French"],
+  ["de", "German"],
+  ["it", "Italian"],
+] as const;
+
+function languageHint(count: number) {
+  if (count === 0) return "Detected automatically for each sentence.";
+  if (count === 1) return "Everything is transcribed in this language.";
+  return "Murmur follows switches between these languages.";
+}
+
 function defaultTitle() {
   const now = new Date();
   return `Meeting ${now.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
@@ -20,13 +35,21 @@ export function StartDialog({
   const [title, setTitle] = useState(defaultTitle);
   const [folder, setFolder] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat | null>(null);
+  const [languages, setLanguages] = useState<string[] | null>(null);
   const titleInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => titleInput.current?.select(), []);
 
   const chosenFolder = folder ?? settings.data?.last_folder ?? "";
   const chosenFormat = format ?? settings.data?.default_format ?? "markdown";
+  const chosenLanguages = languages ?? settings.data?.languages ?? [];
   const options = flattenFolders(folders.data?.tree ?? []);
+  const toggleLanguage = (code: string) =>
+    setLanguages(
+      chosenLanguages.includes(code)
+        ? chosenLanguages.filter((l) => l !== code)
+        : [...chosenLanguages, code],
+    );
 
   return (
     <div className="fixed inset-0 z-10 flex items-center justify-center">
@@ -40,7 +63,12 @@ export function StartDialog({
         className="relative flex w-[440px] flex-col gap-4 rounded-2xl border border-line bg-surface p-6 shadow-xl"
         onSubmit={(e) => {
           e.preventDefault();
-          onStart({ title: title.trim() || "Meeting", folder: chosenFolder, format: chosenFormat });
+          onStart({
+            title: title.trim() || "Meeting",
+            folder: chosenFolder,
+            format: chosenFormat,
+            languages: chosenLanguages,
+          });
         }}
         onKeyDown={(e) => e.key === "Escape" && onCancel()}
       >
@@ -88,6 +116,28 @@ export function StartDialog({
               </button>
             ))}
           </div>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-1 text-sm">
+          <span className="text-ink-soft">Languages spoken</span>
+          <div className="flex flex-wrap gap-2">
+            {LANGUAGES.map(([code, name]) => (
+              <button
+                key={code}
+                type="button"
+                aria-pressed={chosenLanguages.includes(code)}
+                onClick={() => toggleLanguage(code)}
+                className={`rounded-full border px-3 py-1 ${
+                  chosenLanguages.includes(code)
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-line"
+                }`}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          <span className="text-ink-soft text-xs">{languageHint(chosenLanguages.length)}</span>
         </fieldset>
 
         <div className="mt-2 flex justify-end gap-2">

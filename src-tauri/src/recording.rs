@@ -9,7 +9,7 @@ use std::thread;
 use murmur_audio::{Recorder, RecorderStatus, Recording, SpeechChunk};
 use murmur_core::{ExportFormat, Segment, Session};
 use murmur_store::SessionRecord;
-use murmur_stt::{Transcriber, WhisperModel};
+use murmur_stt::{MeetingTranscriber, Transcriber, WhisperModel};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
@@ -18,6 +18,11 @@ use crate::library::LibraryState;
 use crate::settings::{self, SettingsState};
 
 const WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
+/// Small and fast; only identifies languages in meetings that mix them.
+const LANGUAGE_MODEL: &str = "ggml-base.bin";
+
+/// Each language is one more candidate for every check, so keep meetings to a few.
+const MAX_LANGUAGES: usize = 4;
 
 #[derive(Default)]
 pub struct RecordingState {
@@ -25,6 +30,8 @@ pub struct RecordingState {
     starting: AtomicBool,
     /// Loaded at launch and kept for the app's lifetime.
     model: Mutex<Option<Arc<WhisperModel>>>,
+    /// Loaded the first time a meeting has two or more languages.
+    language_model: Mutex<Option<Arc<WhisperModel>>>,
 }
 
 struct ActiveSession {
@@ -55,9 +62,12 @@ fn helper_path() -> Result<PathBuf, String> {
     Ok(exe.with_file_name("audiocap"))
 }
 
-fn load_model(app: &AppHandle) -> Result<Arc<WhisperModel>, String> {
-    let state = app.state::<RecordingState>();
-    let mut slot = state.model.lock().unwrap();
+fn load_model(
+    app: &AppHandle,
+    slot: &Mutex<Option<Arc<WhisperModel>>>,
+    file: &str,
+) -> Result<Arc<WhisperModel>, String> {
+    let mut slot = slot.lock().unwrap();
     if let Some(model) = slot.as_ref() {
         return Ok(model.clone());
     }
@@ -66,18 +76,29 @@ fn load_model(app: &AppHandle) -> Result<Arc<WhisperModel>, String> {
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("models")
-        .join(WHISPER_MODEL);
+        .join(file);
     let model = WhisperModel::load(&path)
         .map_err(|e| format!("{e}. Run scripts/download-models.sh to download it."))?;
     *slot = Some(model.clone());
     Ok(model)
 }
 
-/// Loads Whisper in the background at launch so the first Start is instant.
+fn transcriber(app: &AppHandle, languages: &[String]) -> Result<MeetingTranscriber, String> {
+    let state = app.state::<RecordingState>();
+    let model = load_model(app, &state.model, WHISPER_MODEL)?;
+    let detector = match languages.len() {
+        0 | 1 => None,
+        _ => Some(load_model(app, &state.language_model, LANGUAGE_MODEL)?),
+    };
+    MeetingTranscriber::new(&model, detector.as_ref(), languages).map_err(|e| e.to_string())
+}
+
+/// Loads the models in the background at launch so the first Start is instant.
 pub fn preload_model(app: &AppHandle) {
     let app = app.clone();
     thread::spawn(move || {
-        if let Err(e) = load_model(&app) {
+        let languages = app.state::<SettingsState>().0.lock().unwrap().languages.clone();
+        if let Err(e) = transcriber(&app, &languages) {
             tracing::warn!("model preload failed: {e}");
         }
     });
@@ -91,9 +112,13 @@ pub async fn start_recording(
     title: String,
     folder: String,
     format: ExportFormat,
+    languages: Vec<String>,
     on_event: Channel<TranscriptEvent>,
 ) -> Result<(), String> {
     murmur_store::validate_folder(&folder).map_err(|e| e.to_string())?;
+    if languages.len() > MAX_LANGUAGES {
+        return Err(format!("choose at most {MAX_LANGUAGES} languages"));
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<RecordingState>();
         // Guards against a second click while this start is still in progress. The
@@ -107,7 +132,7 @@ pub async fn start_recording(
             return Err("a recording is already running".into());
         }
         let result = (|| {
-            let transcriber = load_model(&app)?.transcriber(None).map_err(|e| e.to_string())?;
+            let transcriber = transcriber(&app, &languages)?;
             let now = chrono::Local::now();
             let session = Session {
                 id: now.format("%Y-%m-%d_%H-%M-%S").to_string(),
@@ -121,7 +146,7 @@ pub async fn start_recording(
                 duration_ms: 0,
                 format,
             };
-            remember_choices(&app, &session);
+            remember_choices(&app, &session, &languages);
 
             let dir = app
                 .path()
@@ -157,12 +182,13 @@ pub async fn start_recording(
     .map_err(|e| e.to_string())?
 }
 
-/// Preselects this folder and format in the next New session dialog.
-fn remember_choices(app: &AppHandle, session: &Session) {
+/// Preselects this folder, format and languages in the next New session dialog.
+fn remember_choices(app: &AppHandle, session: &Session, languages: &[String]) {
     let state = app.state::<SettingsState>();
     let mut s = state.0.lock().unwrap();
     s.last_folder = session.folder.clone();
     s.default_format = session.format;
+    s.languages = languages.to_vec();
     if let Err(e) = settings::save(app, &s) {
         tracing::warn!("save settings: {e}");
     }

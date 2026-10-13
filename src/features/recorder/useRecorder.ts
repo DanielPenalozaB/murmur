@@ -27,7 +27,11 @@ export function useRecorder() {
         }
       });
     },
-    onSettled: refresh,
+    onSettled: () => {
+      refresh();
+      // Start remembers the folder, format and languages for the next dialog.
+      queryClient.invalidateQueries({ queryKey: ["settings"] });
+    },
   });
   const pause = useMutation({ mutationFn: ipc.setRecordingPaused, onSettled: refresh });
   const stop = useMutation<Recording>({

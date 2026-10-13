@@ -13,7 +13,7 @@ const NO_SPEECH_THRESHOLD: f32 = 0.6;
 /// A loaded Whisper model. Loading takes about a second, so the app keeps one and
 /// creates a cheap [`WhisperTranscriber`] per recording.
 pub struct WhisperModel {
-    ctx: WhisperContext,
+    pub(crate) ctx: WhisperContext,
 }
 
 impl WhisperModel {
@@ -34,7 +34,12 @@ impl WhisperModel {
             .ctx
             .create_state()
             .map_err(|e| SttError::Inference(e.to_string()))?;
-        Ok(WhisperTranscriber { _model: self.clone(), state, language, prompt: None })
+        Ok(WhisperTranscriber {
+            _model: self.clone(),
+            state,
+            language,
+            prompt: None,
+        })
     }
 }
 
@@ -51,12 +56,16 @@ impl WhisperTranscriber {
     pub fn set_prompt(&mut self, prompt: Option<String>) {
         self.prompt = prompt;
     }
-}
 
-impl Transcriber for WhisperTranscriber {
-    fn transcribe(&mut self, chunk: &SpeechChunk) -> Result<Vec<Segment>, SttError> {
+    /// Transcribes in `language` (an ISO code), or auto-detects when `None`. Whisper
+    /// decodes a whole chunk in one language and translates speech in any other.
+    pub fn transcribe_in(
+        &mut self,
+        chunk: &SpeechChunk,
+        language: Option<&str>,
+    ) -> Result<Vec<Segment>, SttError> {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_language(Some(self.language.as_deref().unwrap_or("auto")));
+        params.set_language(Some(language.unwrap_or("auto")));
         params.set_n_threads(4);
         // Each chunk stands alone: carrying context between chunks causes repetition loops.
         params.set_no_context(true);
@@ -104,5 +113,12 @@ impl Transcriber for WhisperTranscriber {
             });
         }
         Ok(segments)
+    }
+}
+
+impl Transcriber for WhisperTranscriber {
+    fn transcribe(&mut self, chunk: &SpeechChunk) -> Result<Vec<Segment>, SttError> {
+        let language = self.language.clone();
+        self.transcribe_in(chunk, language.as_deref())
     }
 }

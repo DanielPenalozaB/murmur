@@ -142,7 +142,14 @@ final class SystemCapture {
 // MARK: - Microphone (AVAudioEngine)
 
 final class MicCapture {
-    private let engine = AVAudioEngine()
+    /// Restarts and watchdog checks run here, never on the audio thread.
+    private let queue = DispatchQueue(label: "audiocap.mic")
+    private var engine = AVAudioEngine()
+    private var observer: NSObjectProtocol?
+    private var watchdog: DispatchSourceTimer?
+    private let lastBuffer = NSLock()
+    private var lastBufferAt = DispatchTime.now()
+    private var restarts = 0
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -161,18 +168,71 @@ final class MicCapture {
         default:
             fail("microphone permission denied", code: 3)
         }
+        queue.sync { startEngine() }
+
+        // AVAudioEngine stops silently when the input device changes (headphones
+        // connect, Teams switches devices) and sometimes never delivers audio at all.
+        // Restart it whenever it goes quiet: even a silent room produces buffers.
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 1)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.lastBuffer.lock()
+            let idle = DispatchTime.now().uptimeNanoseconds - self.lastBufferAt.uptimeNanoseconds
+            self.lastBuffer.unlock()
+            if idle > 2_000_000_000 { self.restart("microphone delivered no audio for 2 s") }
+        }
+        timer.resume()
+        watchdog = timer
+    }
+
+    func stop() {
+        queue.sync {
+            watchdog?.cancel()
+            stopEngine()
+        }
+    }
+
+    /// Must run on `queue`.
+    private func startEngine() {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0 else { fail("no microphone input available", code: 3) }
         let writer = PCMWriter(from: format)
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in writer.write(buffer) }
-        do { try engine.start() } catch { fail("start microphone: \(error)") }
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+            writer.write(buffer)
+            guard let self else { return }
+            self.lastBuffer.lock()
+            self.lastBufferAt = .now()
+            self.lastBuffer.unlock()
+        }
+        observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+        ) { [weak self] _ in
+            self?.queue.async { self?.restart("microphone configuration changed") }
+        }
+        lastBuffer.lock()
+        lastBufferAt = .now()
+        lastBuffer.unlock()
+        do { try engine.start() } catch { log("start microphone: \(error)") }
         log("capturing microphone at \(Int(format.sampleRate)) Hz")
     }
 
-    func stop() {
+    /// Must run on `queue`.
+    private func stopEngine() {
+        if let observer { NotificationCenter.default.removeObserver(observer) }
+        observer = nil
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+    }
+
+    /// Must run on `queue`. A fresh engine picks up the current default input device.
+    private func restart(_ reason: String) {
+        restarts += 1
+        log("\(reason); restarting (\(restarts))")
+        stopEngine()
+        engine = AVAudioEngine()
+        startEngine()
     }
 }
 

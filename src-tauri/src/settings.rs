@@ -13,6 +13,9 @@ pub struct Settings {
     pub default_format: ExportFormat,
     /// Preselected in the New session dialog.
     pub last_folder: String,
+    /// ISO codes of the languages spoken in meetings. Empty lets Whisper detect each
+    /// chunk, one forces it, two or more follow switches between them.
+    pub languages: Vec<String>,
 }
 
 impl Default for Settings {
@@ -22,6 +25,7 @@ impl Default for Settings {
             vault_path: home.join("Documents").join("Murmur"),
             default_format: ExportFormat::Markdown,
             last_folder: String::new(),
+            languages: Vec::new(),
         }
     }
 }
