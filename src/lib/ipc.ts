@@ -39,11 +39,19 @@ export type RecorderStatus = {
   system_speaking: boolean;
   mic_receiving: boolean;
   system_receiving: boolean;
+  /** The user turned their mic off in Murmur. */
+  mic_muted: boolean;
+  restarts: number;
 };
+
+export type RetranscribeEvent =
+  | { kind: "progress"; done: number; total: number }
+  | { kind: "status"; message: string }
+  | { kind: "finished"; segments: number; speakers: number };
 
 export type Recording = {
   dir: string;
-  tracks: { channel: Channel; path: string; duration_ms: number }[];
+  tracks: { channel: Channel; path: string; duration_ms: number; gain: number }[];
 };
 
 export type Segment = {
@@ -152,7 +160,19 @@ export const ipc = {
   forgetVoice: (name: string) => invoke<void>("forget_voice", { name }),
   sessionsWithSpeaker: (name: string) => invoke<SessionRecord[]>("sessions_with_speaker", { name }),
 
+  retranscribeSession: (
+    id: string,
+    languages: string[],
+    onEvent: (event: RetranscribeEvent) => void,
+  ) => {
+    const channel = new IpcChannel<RetranscribeEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("retranscribe_session", { id, languages, onEvent: channel });
+  },
+  sessionLanguages: (id: string) => invoke<string[] | null>("session_languages", { id }),
+
   setRecordingPaused: (paused: boolean) => invoke<void>("set_recording_paused", { paused }),
+  setMicMuted: (muted: boolean) => invoke<void>("set_mic_muted", { muted }),
   stopRecording: () => invoke<Recording>("stop_recording"),
   recordingStatus: () => invoke<RecorderStatus | null>("recording_status"),
 };

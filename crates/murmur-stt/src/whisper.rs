@@ -95,10 +95,34 @@ impl WhisperTranscriber {
             .map_err(|e| SttError::Inference(e.to_string()))?;
 
         let chunk_ms = chunk.samples.len() as u64 * 1000 / SAMPLE_RATE as u64;
+        let eot = self._model.ctx.token_eot();
+        let trace = std::env::var_os("MURMUR_STT_TRACE").is_some();
         let mut segments = Vec::new();
         for s in self.state.as_iter() {
             let text = s.to_str_lossy().map_err(|e| SttError::Inference(e.to_string()))?;
-            if s.no_speech_probability() > NO_SPEECH_THRESHOLD || is_hallucination(&text) {
+            // Mean probability of the text tokens (special tokens sort after end-of-text).
+            let probs: Vec<f32> = (0..s.n_tokens())
+                .filter_map(|i| s.get_token(i))
+                .filter(|t| t.token_id() < eot)
+                .map(|t| t.token_probability())
+                .collect();
+            let confidence = probs.iter().sum::<f32>() / probs.len().max(1) as f32;
+            let no_speech = s.no_speech_probability();
+            if trace {
+                let rms = (chunk.samples.iter().map(|x| x * x).sum::<f32>()
+                    / chunk.samples.len().max(1) as f32)
+                    .sqrt();
+                eprintln!(
+                    "trace {:?} {:>7} ms {:>5} ms {:>4.0} dB {:?} no_speech={no_speech:.2} conf={confidence:.2} {:?}",
+                    chunk.channel,
+                    chunk.start_ms,
+                    chunk_ms,
+                    20.0 * rms.max(1e-9).log10(),
+                    language.unwrap_or("auto"),
+                    text.trim()
+                );
+            }
+            if no_speech > NO_SPEECH_THRESHOLD || is_hallucination(&text) {
                 continue;
             }
             // Whisper timestamps are in centiseconds relative to the chunk.

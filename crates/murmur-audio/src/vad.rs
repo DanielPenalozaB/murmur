@@ -221,6 +221,21 @@ impl Segmenter {
     }
 }
 
+/// Cuts a whole recorded track into speech chunks exactly as live recording does,
+/// e.g. to transcribe a session again. `gain` is the volume boost applied after
+/// recording; it's divided out so the VAD hears the original levels.
+pub fn speech_chunks(channel: Channel, samples: &[f32], gain: f32) -> Vec<SpeechChunk> {
+    let mut segmenter = Segmenter::new(channel);
+    let mut chunks = Vec::new();
+    // The helpers deliver 100 ms frames.
+    for frame in samples.chunks(SAMPLE_RATE as usize / 10) {
+        let frame: Vec<f32> = frame.iter().map(|s| s / gain).collect();
+        chunks.extend(segmenter.push(&frame));
+    }
+    chunks.extend(segmenter.flush());
+    chunks
+}
+
 fn ms_to_samples(ms: u64) -> usize {
     (ms * SAMPLE_RATE as u64 / 1000) as usize
 }

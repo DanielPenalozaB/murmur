@@ -23,7 +23,7 @@ const WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 const BASE_MODEL: &str = "ggml-base.bin";
 
 /// Each language is one more candidate for every check, so keep meetings to a few.
-const MAX_LANGUAGES: usize = 4;
+pub(crate) const MAX_LANGUAGES: usize = 4;
 
 #[derive(Default)]
 pub struct RecordingState {
@@ -45,6 +45,8 @@ impl RecordingState {
 
 struct ActiveSession {
     recorder: Recorder,
+    /// Saved with the audio so a re-transcription can default to them.
+    languages: Vec<String>,
     /// Sends the final duration to the transcription worker once recording stops.
     duration_tx: Sender<u64>,
 }
@@ -111,15 +113,28 @@ fn load_model(
     Ok(model)
 }
 
+/// The transcription model (turbo) and the fast model (base), loaded once.
+pub(crate) fn models(app: &AppHandle) -> Result<(Arc<WhisperModel>, Arc<WhisperModel>), String> {
+    let state = app.state::<RecordingState>();
+    Ok((
+        load_model(app, &state.model, WHISPER_MODEL)?,
+        load_model(app, &state.base_model, BASE_MODEL)?,
+    ))
+}
+
+/// Whether a recording is running or starting.
+pub(crate) fn is_recording(app: &AppHandle) -> bool {
+    let state = app.state::<RecordingState>();
+    state.active.lock().unwrap().is_some() || state.starting.load(Ordering::Acquire)
+}
+
 /// The final transcriber (turbo) and the draft transcriber (base), both following the
 /// meeting's languages.
 fn transcribers(
     app: &AppHandle,
     languages: &[String],
 ) -> Result<(MeetingTranscriber, MeetingTranscriber), String> {
-    let state = app.state::<RecordingState>();
-    let model = load_model(app, &state.model, WHISPER_MODEL)?;
-    let base = load_model(app, &state.base_model, BASE_MODEL)?;
+    let (model, base) = models(app)?;
     let finals = MeetingTranscriber::new(&model, Some(&base), languages).map_err(|e| e.to_string())?;
     let drafts = MeetingTranscriber::new(&base, Some(&base), languages).map_err(|e| e.to_string())?;
     Ok((finals, drafts))
@@ -237,6 +252,7 @@ pub async fn start_recording(
             );
             *state.active.lock().unwrap() = Some(ActiveSession {
                 recorder,
+                languages: languages.clone(),
                 duration_tx,
             });
             Ok(())
@@ -447,13 +463,34 @@ fn save_session(
 }
 
 /// Replaces the audio folder's transcript log with the speaker-labelled segments.
-fn rewrite_jsonl(path: &Path, segments: &[Segment]) -> std::io::Result<()> {
+pub(crate) fn rewrite_jsonl(path: &Path, segments: &[Segment]) -> std::io::Result<()> {
     let mut out = Vec::new();
     for s in segments {
         serde_json::to_writer(&mut out, s)?;
         out.push(b'\n');
     }
     std::fs::write(path, out)
+}
+
+/// `audio.json` beside the tracks: each track's volume boost, keyed by channel, and
+/// the meeting's languages.
+fn write_audio_info(recording: &Recording, languages: &[String]) -> std::io::Result<()> {
+    let gains: serde_json::Map<String, serde_json::Value> = recording
+        .tracks
+        .iter()
+        .map(|t| {
+            let channel = match t.channel {
+                AudioChannel::Mic => "mic",
+                AudioChannel::System => "system",
+            };
+            (channel.to_string(), serde_json::json!(t.gain))
+        })
+        .collect();
+    let info = serde_json::json!({ "gains": gains, "languages": languages });
+    std::fs::write(
+        recording.dir.join("audio.json"),
+        serde_json::to_vec_pretty(&info)?,
+    )
 }
 
 fn append_jsonl(path: &Path, segment: &Segment) -> std::io::Result<()> {
@@ -473,15 +510,32 @@ pub fn set_recording_paused(paused: bool, state: State<RecordingState>) -> Resul
     Ok(())
 }
 
+/// Stops listening to the user's microphone (e.g. while muted in the call) or resumes.
+#[tauri::command]
+pub fn set_mic_muted(muted: bool, state: State<RecordingState>) -> Result<(), String> {
+    let active = state.active.lock().unwrap();
+    active
+        .as_ref()
+        .ok_or("not recording")?
+        .recorder
+        .set_muted(AudioChannel::Mic, muted);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle) -> Result<Recording, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let active = app.state::<RecordingState>().active.lock().unwrap().take();
         let ActiveSession {
             recorder,
+            languages,
             duration_tx,
         } = active.ok_or("not recording")?;
         let recording = recorder.stop().map_err(|e| e.to_string())?;
+        // Lets a re-transcription undo the volume boost and use the same languages.
+        if let Err(e) = write_audio_info(&recording, &languages) {
+            tracing::warn!("write audio.json: {e}");
+        }
         let duration = recording.tracks.iter().map(|t| t.duration_ms).max().unwrap_or(0);
         let _ = duration_tx.send(duration);
         Ok(recording)

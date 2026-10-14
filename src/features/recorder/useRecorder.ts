@@ -48,6 +48,7 @@ export function useRecorder() {
     },
   });
   const pause = useMutation({ mutationFn: ipc.setRecordingPaused, onSettled: refresh });
+  const mute = useMutation({ mutationFn: ipc.setMicMuted, onSettled: refresh });
   const stop = useMutation<Recording>({
     mutationFn: () => {
       transcript.setFinishing(true);
@@ -57,11 +58,12 @@ export function useRecorder() {
     onSettled: refresh,
   });
 
-  const error = start.error ?? pause.error ?? stop.error;
+  const error = start.error ?? pause.error ?? mute.error ?? stop.error;
   return {
     status: status.data ?? null,
     start: (session: NewSession) => start.mutate(session),
     togglePause: () => status.data && pause.mutate(!status.data.paused),
+    toggleMic: () => status.data && mute.mutate(!status.data.mic_muted),
     stop: () => stop.mutate(),
     starting: start.isPending,
     busy: start.isPending || stop.isPending,

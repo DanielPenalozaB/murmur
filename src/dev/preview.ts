@@ -1,8 +1,9 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|library|session|search|speakers|settings`.
+// `?preview&view=live|live-muted|empty|start|library|session|retranscribing|search|speakers|settings`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
+import { useRetranscribe } from "../features/library/retranscribe";
 import { useTranscript } from "../features/transcript/store";
 import type { Segment, SessionCard, SessionDetail, Settings } from "../lib/ipc";
 import { useNav, useUi } from "../lib/nav";
@@ -150,11 +151,12 @@ const settings: Settings = {
 export function install() {
   const params = new URLSearchParams(location.search);
   const view = params.get("view") ?? "live";
-  const recording = view === "live";
+  const recording = view === "live" || view === "live-muted";
+  let micMuted = view === "live-muted";
   // "start" shows the New session dialog; "empty" the idle Live screen.
   if (view === "start") useUi.setState({ startOpen: true });
 
-  mockIPC((cmd) => {
+  mockIPC((cmd, args) => {
     switch (cmd) {
       case "app_info":
         return { version: "0.1.0", llm: "Local · qwen3:14b", local: true };
@@ -203,6 +205,13 @@ export function install() {
             snippet: "if the cache fails we need a [rollback] path that doesn't touch the database",
           },
         ];
+      case "session_languages":
+        return ["en", "es"];
+      case "retranscribe_session":
+        return new Promise(() => {});
+      case "set_mic_muted":
+        micMuted = Boolean((args as { muted?: boolean } | undefined)?.muted);
+        return null;
       case "recording_status":
         return recording
           ? {
@@ -215,6 +224,8 @@ export function install() {
               system_speaking: true,
               mic_receiving: true,
               system_receiving: true,
+              mic_muted: micMuted,
+              restarts: 0,
             }
           : null;
       case "list_models":
@@ -233,11 +244,19 @@ export function install() {
     live: { kind: "live" },
     library: { kind: "folder", folder: null },
     session: { kind: "session", id: record.id },
+    retranscribing: { kind: "session", id: record.id },
     search: { kind: "search", query: "rollback" },
     speakers: { kind: "speakers" },
     settings: { kind: "settings" },
   } as const;
   useNav.setState({ view: nav[view as keyof typeof nav] ?? nav.live });
+  if (view === "retranscribing") {
+    useRetranscribe.setState({
+      jobs: {
+        [record.id]: { status: "running", message: "Transcribing…", done: 41, total: 96 },
+      },
+    });
+  }
 
   if (recording) {
     useTranscript.setState({

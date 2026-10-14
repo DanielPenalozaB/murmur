@@ -32,10 +32,8 @@ func check(_ status: OSStatus, _ what: String) {
 final class PCMWriter {
     private let converter: AVAudioConverter
 
-    init(from format: AVAudioFormat) {
-        guard let converter = AVAudioConverter(from: format, to: targetFormat) else {
-            fail("unsupported input format \(format)")
-        }
+    init?(from format: AVAudioFormat) {
+        guard let converter = AVAudioConverter(from: format, to: targetFormat) else { return nil }
         self.converter = converter
     }
 
@@ -55,7 +53,11 @@ final class PCMWriter {
             status.pointee = .haveData
             return input
         }
-        if let error { fail("conversion failed: \(error)") }
+        if let error {
+            // A format change mid-stream; the mic restarts on the next config change.
+            log("conversion failed: \(error)")
+            return
+        }
 
         guard let samples = output.floatChannelData?[0], output.frameLength > 0 else { return }
         var remaining = Int(output.frameLength) * MemoryLayout<Float32>.size
@@ -87,7 +89,8 @@ final class SystemCapture {
 
         var asbd: AudioStreamBasicDescription = property(tapID, kAudioTapPropertyFormat)
         guard let tapFormat = AVAudioFormat(streamDescription: &asbd) else { fail("unreadable tap format") }
-        writer = PCMWriter(from: tapFormat)
+        guard let writer = PCMWriter(from: tapFormat) else { fail("unsupported tap format \(tapFormat)") }
+        self.writer = writer
 
         let outputDevice: AudioObjectID = property(
             AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice)
@@ -168,7 +171,10 @@ final class MicCapture {
         default:
             fail("microphone permission denied", code: 3)
         }
-        queue.sync { startEngine() }
+        queue.sync {
+            // At launch a missing mic is an error the app shows; later it's retried.
+            if !startEngine() { fail("no microphone input available", code: 3) }
+        }
 
         // AVAudioEngine stops silently when the input device changes (headphones
         // connect, Teams switches devices) and sometimes never delivers audio at all.
@@ -193,12 +199,16 @@ final class MicCapture {
         }
     }
 
-    /// Must run on `queue`.
-    private func startEngine() {
+    /// Must run on `queue`. Returns false when no usable input device is available
+    /// right now (e.g. mid device switch); the watchdog tries again.
+    @discardableResult
+    private func startEngine() -> Bool {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 else { fail("no microphone input available", code: 3) }
-        let writer = PCMWriter(from: format)
+        guard format.sampleRate > 0, let writer = PCMWriter(from: format) else {
+            log("no usable microphone input (\(format)); will retry")
+            return false
+        }
         input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             writer.write(buffer)
             guard let self else { return }
@@ -216,6 +226,7 @@ final class MicCapture {
         lastBuffer.unlock()
         do { try engine.start() } catch { log("start microphone: \(error)") }
         log("capturing microphone at \(Int(format.sampleRate)) Hz")
+        return true
     }
 
     /// Must run on `queue`.

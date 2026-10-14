@@ -2556,6 +2556,7 @@ dependencies = [
  "murmur-audio",
  "murmur-core",
  "serde",
+ "serde_json",
  "sherpa-onnx",
  "tempfile",
  "thiserror 2.0.21",

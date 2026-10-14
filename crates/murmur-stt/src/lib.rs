@@ -1,10 +1,12 @@
 //! Speech-to-text (whisper.cpp via `whisper-rs`, Metal) and post-meeting speaker
 //! diarization (sherpa-onnx).
 
+mod filter;
 mod language;
 pub mod speakers;
 mod whisper;
 
+pub use filter::speech_level_db;
 pub use language::{LanguageDetector, MeetingTranscriber};
 pub use whisper::{WhisperModel, WhisperTranscriber};
 

@@ -26,7 +26,19 @@ pub const EMBEDDING_MODEL: &str = "nemo_en_titanet_small.onnx";
 pub const VOICE_MATCH_THRESHOLD: f32 = 0.6;
 
 /// Cosine distance under which two stretches of speech count as the same person.
+/// Higher merges more, but at 0.8 two of the test voices merged. Clustering alone
+/// split a 14-minute call with about eight people into 60 speakers; most were
+/// fragments, which [`absorb_fragments`] folds back in.
 const CLUSTER_THRESHOLD: f32 = 0.5;
+/// Speakers with less talk than this are usually fragments of someone else (a laugh,
+/// crosstalk, a bad mic moment) ...
+const FRAGMENT_MS: u64 = 15_000;
+/// ... and join the main speaker they sound most like, when at least this similar.
+/// Main speakers in that call were at most 0.56 alike, fragments 0.56–0.82 to theirs.
+const FRAGMENT_MATCH: f32 = 0.5;
+/// Scraps shorter than this join the closest main speaker however unlike: a wrong
+/// guess for a "sí" beats a "Speaker 23" who said one word.
+const SCRAP_MS: u64 = 5_000;
 /// Audio used per speaker for their voiceprint, longest turns first.
 const VOICEPRINT_MS: u64 = 30_000;
 
@@ -58,6 +70,11 @@ impl Diarizer {
 
     /// Like [`Diarizer::load`] with another embedding model file, for comparing models.
     pub fn load_with(models: &Path, embedding_model: &str) -> Result<Self, SttError> {
+        Self::load_tuned(models, embedding_model, CLUSTER_THRESHOLD)
+    }
+
+    /// Like [`Diarizer::load_with`] with another clustering threshold, for tuning.
+    pub fn load_tuned(models: &Path, embedding_model: &str, threshold: f32) -> Result<Self, SttError> {
         let segmentation = models.join(SEGMENTATION_MODEL);
         let embedding = models.join(embedding_model);
         for path in [&segmentation, &embedding] {
@@ -81,7 +98,7 @@ impl Diarizer {
             },
             embedding: embedding.clone(),
             clustering: FastClusteringConfig {
-                threshold: CLUSTER_THRESHOLD,
+                threshold,
                 ..Default::default()
             },
             ..Default::default()
@@ -108,24 +125,23 @@ impl Diarizer {
             .map(|s| ((s.start * 1000.0) as u64, (s.end * 1000.0) as u64, s.speaker))
             .collect();
 
-        // Renumber speakers by first appearance, so "Speaker 1" talks first.
-        let mut order: Vec<i32> = Vec::new();
-        let turns: Vec<SpeakerTurn> = raw
-            .iter()
-            .map(|&(start_ms, end_ms, label)| {
-                let speaker = order.iter().position(|&l| l == label).unwrap_or_else(|| {
-                    order.push(label);
-                    order.len() - 1
-                });
-                SpeakerTurn {
-                    start_ms,
-                    end_ms,
-                    speaker,
-                }
-            })
-            .collect();
+        let mut turns = renumber(&raw);
+        let count = turns.iter().map(|t| t.speaker + 1).max().unwrap_or(0);
+        let voiceprints: Vec<Vec<f32>> = (0..count)
+            .map(|speaker| self.voiceprint(samples, &turns, speaker))
+            .collect::<Result<_, _>>()?;
 
-        let voiceprints = (0..order.len())
+        let into = absorb_fragments(&turns, &voiceprints);
+        if into.iter().enumerate().all(|(i, &j)| i == j) {
+            return Ok(Diarization { turns, voiceprints });
+        }
+        let merged: Vec<(u64, u64, i32)> = turns
+            .iter()
+            .map(|t| (t.start_ms, t.end_ms, into[t.speaker] as i32))
+            .collect();
+        turns = renumber(&merged);
+        let count = turns.iter().map(|t| t.speaker + 1).max().unwrap_or(0);
+        let voiceprints = (0..count)
             .map(|speaker| self.voiceprint(samples, &turns, speaker))
             .collect::<Result<_, _>>()?;
         Ok(Diarization { turns, voiceprints })
@@ -167,6 +183,46 @@ impl Diarizer {
             .ok_or_else(|| SttError::Inference("could not compute a voiceprint".into()))?;
         Ok(normalize(embedding))
     }
+}
+
+/// Numbers speakers 0, 1, … by first appearance, so "Speaker 1" talks first.
+fn renumber(raw: &[(u64, u64, i32)]) -> Vec<SpeakerTurn> {
+    let mut order: Vec<i32> = Vec::new();
+    raw.iter()
+        .map(|&(start_ms, end_ms, label)| {
+            let speaker = order.iter().position(|&l| l == label).unwrap_or_else(|| {
+                order.push(label);
+                order.len() - 1
+            });
+            SpeakerTurn {
+                start_ms,
+                end_ms,
+                speaker,
+            }
+        })
+        .collect()
+}
+
+/// For each speaker, who they really are: themselves, or the main speaker (one with
+/// [`FRAGMENT_MS`] of talk or more) a fragment sounds most like.
+fn absorb_fragments(turns: &[SpeakerTurn], voiceprints: &[Vec<f32>]) -> Vec<usize> {
+    let mut talk = vec![0u64; voiceprints.len()];
+    for t in turns {
+        talk[t.speaker] += t.end_ms - t.start_ms;
+    }
+    let main: Vec<usize> = (0..talk.len()).filter(|&i| talk[i] >= FRAGMENT_MS).collect();
+    (0..talk.len())
+        .map(|i| {
+            if talk[i] >= FRAGMENT_MS {
+                return i;
+            }
+            main.iter()
+                .map(|&j| (similarity(&voiceprints[i], &voiceprints[j]), j))
+                .filter(|&(score, _)| score >= FRAGMENT_MATCH || talk[i] < SCRAP_MS)
+                .max_by(|a, b| a.0.total_cmp(&b.0))
+                .map_or(i, |(_, j)| j)
+        })
+        .collect()
 }
 
 fn ms_to_sample(ms: u64) -> usize {
@@ -335,6 +391,27 @@ mod tests {
         assert_eq!(segments[1].speaker, Some(speaker_id(0)), "talks first");
         assert_eq!(segments[0].speaker, Some(speaker_id(1)));
         assert_eq!(voiceprints, [vec![2.0], vec![1.0]]);
+    }
+
+    #[test]
+    fn fragments_join_the_main_speaker_they_sound_like() {
+        let ana = normalize(vec![1.0, 0.0, 0.0]);
+        let bo = normalize(vec![0.0, 1.0, 0.0]);
+        let turns = [
+            turn(0, 30_000, 0),
+            turn(30_000, 60_000, 1),
+            turn(60_000, 62_000, 2), // sounds like Bo
+            turn(62_000, 63_000, 3), // a scrap that sounds like nobody
+            turn(63_000, 71_000, 4), // a fragment that sounds like nobody
+        ];
+        let voiceprints = [
+            ana,
+            bo,
+            normalize(vec![0.2, 0.9, 0.1]),
+            normalize(vec![0.3, 0.0, 1.0]),
+            normalize(vec![0.0, 0.0, 1.0]),
+        ];
+        assert_eq!(absorb_fragments(&turns, &voiceprints), [0, 1, 1, 0, 4]);
     }
 
     #[test]

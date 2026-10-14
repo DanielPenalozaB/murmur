@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AudioWaveform, Circle, Mic, NotebookPen, Pause, Play, Square } from "lucide-react";
+import { AudioWaveform, Circle, Mic, MicOff, NotebookPen, Pause, Play, Square } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { AvatarStack, TopBar } from "../../components/ui";
 import { ipc, type RecorderStatus } from "../../lib/ipc";
@@ -39,7 +39,11 @@ function Waveform({ level, active }: { level: number; active: boolean }) {
 
 function AudioStreamCard({ status }: { status: RecorderStatus }) {
   const channels = [
-    { label: "You", level: status.mic_level, speaking: status.mic_speaking },
+    {
+      label: status.mic_muted ? "You (mic off)" : "You",
+      level: status.mic_muted ? 0 : status.mic_level,
+      speaking: status.mic_speaking && !status.mic_muted,
+    },
     { label: "Call", level: status.system_level, speaking: status.system_speaking },
   ];
   return (
@@ -110,7 +114,7 @@ function EmptyState({ onStart, busy }: { onStart: () => void; busy: boolean }) {
 }
 
 export function LiveView() {
-  const { status, start, togglePause, stop, starting, busy, error } = useRecorder();
+  const { status, start, togglePause, toggleMic, stop, starting, busy, error } = useRecorder();
   const t = useTranscript();
   const notesJob = useNotes((s) => (t.saved ? s.jobs[t.saved.id] : undefined));
   const go = useNav((s) => s.go);
@@ -121,6 +125,7 @@ export function LiveView() {
   const stick = useRef(true);
   const recording = status !== null;
   const paused = status?.paused ?? false;
+  const micOff = status?.mic_muted ?? false;
   const hasContent = t.segments.length > 0 || t.drafts.length > 0 || t.saved || t.finishing;
 
   // Follow new lines unless the user scrolled up to read.
@@ -153,6 +158,7 @@ export function LiveView() {
               />
               {formatElapsed(status.elapsed_ms)}
               {paused && <span className="eyebrow text-[10px]">Paused</span>}
+              {micOff && !paused && <span className="eyebrow text-[10px]">Mic off</span>}
             </span>
           )}
           <span className="text-outline">/</span>
@@ -163,6 +169,20 @@ export function LiveView() {
           <div className="ml-auto flex items-center gap-2">
             {recording ? (
               <>
+                <button
+                  type="button"
+                  className={micOff ? "btn-ghost bg-accent-soft text-on-accent-soft" : "btn-ghost"}
+                  onClick={toggleMic}
+                  aria-pressed={micOff}
+                  title={
+                    micOff
+                      ? "Murmur isn't listening to your microphone. Click to turn it back on."
+                      : "Stop listening to your microphone, e.g. while you're muted in the call. The call's audio keeps recording."
+                  }
+                >
+                  {micOff ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
+                  {micOff ? "Mic off" : "Mic on"}
+                </button>
                 <button type="button" className="btn-ghost" onClick={togglePause}>
                   {paused ? <Play className="size-3.5" /> : <Pause className="size-3.5" />}
                   {paused ? "Resume" : "Pause"}

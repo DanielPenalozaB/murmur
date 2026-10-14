@@ -1,6 +1,7 @@
 mod assistant;
 mod library;
 mod recording;
+mod retranscribe;
 mod settings;
 mod speakers;
 
@@ -32,6 +33,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(recording::RecordingState::default())
         .manage(speakers::SpeakersState::default())
+        .manage(retranscribe::RetranscribeState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
@@ -51,8 +53,11 @@ pub fn run() {
             library::open_session_item,
             recording::start_recording,
             recording::set_recording_paused,
+            recording::set_mic_muted,
             recording::stop_recording,
             recording::recording_status,
+            retranscribe::retranscribe_session,
+            retranscribe::session_languages,
             assistant::ask,
             assistant::generate_notes,
             assistant::save_notes,

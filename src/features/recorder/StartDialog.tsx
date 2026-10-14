@@ -5,7 +5,7 @@ import { type ExportFormat, ipc, type NewSession } from "../../lib/ipc";
 import { useNav } from "../../lib/nav";
 import { flattenFolders } from "../library/folders";
 
-const LANGUAGES = [
+export const LANGUAGES = [
   ["en", "English"],
   ["es", "Spanish"],
   ["pt", "Portuguese"],

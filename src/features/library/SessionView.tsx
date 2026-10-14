@@ -7,6 +7,7 @@ import {
   Lock,
   PencilLine,
   RefreshCw,
+  RotateCcw,
   UsersRound,
 } from "lucide-react";
 import { useState } from "react";
@@ -24,6 +25,8 @@ import {
   SpeakerChip,
   TranscriptTurns,
 } from "../transcript/TranscriptTurns";
+import { RetranscribeDialog } from "./RetranscribeDialog";
+import { progressPercent, useRetranscribe } from "./retranscribe";
 
 /** The user's own notes, kept under "## My notes" when notes are generated. */
 export function userNotesOf(notes: string) {
@@ -176,6 +179,9 @@ export function SessionView({ id }: { id: string }) {
   const session = useQuery({ queryKey: ["session", id], queryFn: () => ipc.getSession(id) });
   const [tab, setTab] = useState<"notes" | "transcript">("notes");
   const [seek, setSeek] = useState<Seek | null>(null);
+  const [retranscribing, setRetranscribing] = useState(false);
+  const job = useRetranscribe((st) => st.jobs[id]);
+  const running = job?.status === "running";
   const s = session.data;
 
   // Citations jump to the transcript tab, then scroll there once it renders.
@@ -198,6 +204,15 @@ export function SessionView({ id }: { id: string }) {
       <TopBar crumbs={["Vault", ...(s?.folder ? s.folder.split("/") : []), s?.title ?? ""]}>
         {s && (
           <>
+            <button
+              type="button"
+              className="btn-quiet"
+              title="Transcribe this session again"
+              disabled={running}
+              onClick={() => setRetranscribing(true)}
+            >
+              <RotateCcw className={`size-4 ${running ? "animate-spin" : ""}`} />
+            </button>
             <button
               type="button"
               className="btn-quiet"
@@ -261,6 +276,41 @@ export function SessionView({ id }: { id: string }) {
                   </h1>
                 </div>
 
+                {job && job.status !== "done" && (
+                  <div
+                    className={`rounded-xl px-4 py-3 text-[13px] ${job.status === "error" ? "bg-accent-soft text-on-accent-soft" : "bg-sidebar"}`}
+                  >
+                    {job.status === "error" ? (
+                      <p>Re-transcription failed: {job.error}</p>
+                    ) : (
+                      <>
+                        <p className="flex items-center justify-between gap-3">
+                          <span className="flex items-center gap-2">
+                            <RotateCcw className="size-3.5 animate-spin" /> Re-transcribing ·{" "}
+                            {job.message}
+                          </span>
+                          {job.total > 0 && (
+                            <span className="tabular-nums text-ink-soft">
+                              {progressPercent(job)}%
+                            </span>
+                          )}
+                        </p>
+                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-high">
+                          <div
+                            className="h-full bg-accent transition-[width]"
+                            style={{ width: `${progressPercent(job)}%` }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {job?.status === "done" && (
+                  <p className="text-[13px] text-local">
+                    Re-transcribed. {job.message} Regenerate the notes to match the new transcript.
+                  </p>
+                )}
+
                 <Attendees session={s} onRename={rename} />
 
                 <div className="flex justify-center gap-2">
@@ -320,6 +370,9 @@ export function SessionView({ id }: { id: string }) {
           />
         </div>
       </div>
+      {retranscribing && s && (
+        <RetranscribeDialog session={s} onClose={() => setRetranscribing(false)} />
+      )}
     </div>
   );
 }
