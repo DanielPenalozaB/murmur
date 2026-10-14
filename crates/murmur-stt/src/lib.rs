@@ -6,7 +6,7 @@ mod language;
 pub mod speakers;
 mod whisper;
 
-pub use filter::speech_level_db;
+pub use filter::{foreign_letters, speech_level_db};
 pub use language::{LanguageDetector, MeetingTranscriber};
 pub use whisper::{WhisperModel, WhisperTranscriber};
 
@@ -37,13 +37,18 @@ pub fn is_hallucination(text: &str) -> bool {
         return true;
     }
     let lower = t.to_lowercase();
-    const KNOWN: [&str; 6] = [
+    const KNOWN: [&str; 11] = [
         "thanks for watching",
         "thank you for watching",
         "please subscribe",
+        "the next video",
+        "the next episode",
         "subtítulos realizados por",
+        "subtitulado por",
         "amara.org",
+        "antarctica films",
         "gracias por ver el video",
+        "suscríbete",
     ];
     KNOWN.iter().any(|k| lower.contains(k))
 }
@@ -62,6 +67,8 @@ mod tests {
             "...",
             "Thanks for watching!",
             "Subtítulos realizados por la comunidad de Amara.org",
+            "I'm going to go to the next video.",
+            "CC por Antarctica Films Argentina",
         ] {
             assert!(is_hallucination(t), "{t:?}");
         }

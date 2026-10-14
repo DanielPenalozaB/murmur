@@ -394,7 +394,7 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
             .duration
             .recv()
             .unwrap_or_else(|_| segments.iter().map(|s| s.end).max().unwrap_or(0));
-        if segments.iter().any(|s| s.channel == AudioChannel::System) {
+        if !segments.is_empty() {
             let _ = w.events.send(TranscriptEvent::Status {
                 message: "Identifying speakers…".into(),
             });
@@ -407,9 +407,8 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
             });
             Vec::new()
         });
-        if !speakers.is_empty()
-            && let Err(e) = rewrite_jsonl(&log_path, &segments)
-        {
+        // Speakers were added and lines with no voice removed.
+        if let Err(e) = rewrite_jsonl(&log_path, &segments) {
             tracing::error!("rewrite transcript: {e}");
         }
         let saved = save_session(&app, &w.session, &segments, &speakers);

@@ -250,6 +250,42 @@ pub fn speaker_id(speaker: usize) -> SpeakerId {
     SpeakerId(format!("speaker_{}", speaker + 1))
 }
 
+/// Lines the speaker model hears as speech for less than this share of their time
+/// are dropped after the meeting. Whisper writes stock phrases over music, hold tunes
+/// and keyboard noise; the speaker model, trained to find voices, doesn't hear speech
+/// there. Real lines score 60–100 %; the few short replies below this ("no", "yeah")
+/// are an acceptable loss.
+pub const MIN_SPEECH_COVERAGE: f32 = 0.3;
+
+/// Removes `channel`'s segments that are mostly not speech according to `turns`
+/// (see [`MIN_SPEECH_COVERAGE`]). Returns how many were removed.
+pub fn drop_unheard(segments: &mut Vec<Segment>, channel: Channel, turns: &[SpeakerTurn]) -> usize {
+    let before = segments.len();
+    segments.retain(|s| s.channel != channel || speech_coverage(s, turns) >= MIN_SPEECH_COVERAGE);
+    before - segments.len()
+}
+
+/// How much of `segment` (0..1) the speaker model heard someone talking in.
+pub fn speech_coverage(segment: &Segment, turns: &[SpeakerTurn]) -> f32 {
+    let length = segment.end.saturating_sub(segment.start);
+    if length == 0 {
+        return 0.0;
+    }
+    // Turns of different speakers overlap; count each millisecond once.
+    let mut spans: Vec<(u64, u64)> = turns
+        .iter()
+        .map(|t| (t.start_ms.max(segment.start), t.end_ms.min(segment.end)))
+        .filter(|(s, e)| s < e)
+        .collect();
+    spans.sort();
+    let (mut covered, mut reach) = (0, segment.start);
+    for (s, e) in spans {
+        covered += e.saturating_sub(s.max(reach));
+        reach = reach.max(e);
+    }
+    covered as f32 / length as f32
+}
+
 /// Gives each system-audio segment the speaker who talks most during it. Segments
 /// with no overlapping turn keep `None` ("Them").
 pub fn assign_speakers(segments: &mut [Segment], turns: &[SpeakerTurn]) {
@@ -358,6 +394,37 @@ mod tests {
             end_ms,
             speaker,
         }
+    }
+
+    fn line(channel: Channel, start: u64, end: u64) -> Segment {
+        Segment {
+            start,
+            end,
+            channel,
+            speaker: None,
+            text: "hola".into(),
+        }
+    }
+
+    #[test]
+    fn coverage_counts_overlapping_turns_once() {
+        let turns = [turn(1_000, 2_000, 0), turn(1_500, 2_500, 1)];
+        let s = line(Channel::System, 1_000, 3_000);
+        assert!((speech_coverage(&s, &turns) - 0.75).abs() < 1e-6);
+        assert_eq!(speech_coverage(&line(Channel::System, 5_000, 6_000), &turns), 0.0);
+    }
+
+    #[test]
+    fn drops_lines_the_speaker_model_hears_no_voice_in() {
+        let turns = [turn(0, 4_000, 0)];
+        let mut segments = vec![
+            line(Channel::System, 500, 2_000),
+            line(Channel::System, 10_000, 12_000),
+            line(Channel::Mic, 10_000, 12_000),
+        ];
+        assert_eq!(drop_unheard(&mut segments, Channel::System, &turns), 1);
+        assert_eq!(segments.len(), 2);
+        assert_eq!(segments[1].channel, Channel::Mic, "other channel untouched");
     }
 
     #[test]

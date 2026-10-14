@@ -24,10 +24,6 @@ func fail(_ message: String, code: Int32 = 2) -> Never {
     exit(code)
 }
 
-func check(_ status: OSStatus, _ what: String) {
-    if status != noErr { fail("\(what) failed (OSStatus \(status))") }
-}
-
 /// Converts arbitrary input buffers to 16 kHz mono and writes them to stdout.
 final class PCMWriter {
     private let converter: AVAudioConverter
@@ -71,30 +67,107 @@ final class PCMWriter {
     }
 }
 
+struct CaptureError: Error, CustomStringConvertible {
+    let description: String
+    init(_ description: String) { self.description = description }
+}
+
 // MARK: - System audio (Core Audio process tap)
 
 final class SystemCapture {
+    /// Rebuilds and watchdog checks run here, never on the audio thread.
+    private let queue = DispatchQueue(label: "audiocap.system.control")
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var procID: AudioDeviceIOProcID?
-    private var writer: PCMWriter?
+    private var watchdog: DispatchSourceTimer?
+    private let lastBuffer = NSLock()
+    private var lastBufferAt = DispatchTime.now()
+    private var rebuilds = 0
 
     func start() {
+        queue.sync { build() }
+
+        // The tap hangs off the output device; when the output changes (headphones,
+        // Teams switching to a headset) or the device goes away, audio stops coming.
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice, mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, queue) {
+            [weak self] _, _ in
+            self?.rebuild("output device changed")
+        }
+
+        // An aggregate device delivers buffers continuously, silence included, so a
+        // gap means capture stalled.
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 2, repeating: 1)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.lastBuffer.lock()
+            let idle = DispatchTime.now().uptimeNanoseconds - self.lastBufferAt.uptimeNanoseconds
+            self.lastBuffer.unlock()
+            if idle > 2_000_000_000 { self.rebuild("system audio delivered nothing for 2 s") }
+        }
+        timer.resume()
+        watchdog = timer
+    }
+
+    func stop() {
+        queue.sync {
+            watchdog?.cancel()
+            teardown()
+        }
+    }
+
+    /// Must run on `queue`.
+    private func rebuild(_ reason: String) {
+        rebuilds += 1
+        log("\(reason); restarting (\(rebuilds))")
+        teardown()
+        build()
+    }
+
+    /// Must run on `queue`. Failures at launch are fatal (the app shows them); later
+    /// ones are logged and retried by the watchdog.
+    private func build() {
+        let first = rebuilds == 0
+        func attempt(_ status: OSStatus, _ what: String) -> Bool {
+            if status == noErr { return true }
+            if first { fail("\(what) failed (OSStatus \(status))") }
+            log("\(what) failed (OSStatus \(status)); will retry")
+            return false
+        }
+        lastBuffer.lock()
+        lastBufferAt = .now()
+        lastBuffer.unlock()
+
         let description = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
         description.uuid = UUID()
         description.name = "Murmur"
         description.isPrivate = true
         description.muteBehavior = .unmuted
-        check(AudioHardwareCreateProcessTap(description, &tapID), "create process tap")
+        guard attempt(AudioHardwareCreateProcessTap(description, &tapID), "create process tap") else { return }
 
-        var asbd: AudioStreamBasicDescription = property(tapID, kAudioTapPropertyFormat)
-        guard let tapFormat = AVAudioFormat(streamDescription: &asbd) else { fail("unreadable tap format") }
-        guard let writer = PCMWriter(from: tapFormat) else { fail("unsupported tap format \(tapFormat)") }
-        self.writer = writer
-
-        let outputDevice: AudioObjectID = property(
-            AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultSystemOutputDevice)
-        let outputUID: CFString = property(outputDevice, kAudioDevicePropertyDeviceUID)
+        var asbd: AudioStreamBasicDescription
+        var outputUID: CFString
+        do {
+            asbd = try property(tapID, kAudioTapPropertyFormat)
+            // The device apps play to, not the one for alert sounds.
+            let outputDevice: AudioObjectID = try property(
+                AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice)
+            outputUID = try property(outputDevice, kAudioDevicePropertyDeviceUID)
+            // For diagnosing devices without changing the user's settings.
+            if let uid = ProcessInfo.processInfo.environment["AUDIOCAP_OUTPUT_UID"] { outputUID = uid as CFString }
+        } catch {
+            _ = attempt(-1, "\(error)")
+            return
+        }
+        guard let tapFormat = AVAudioFormat(streamDescription: &asbd), let writer = PCMWriter(from: tapFormat)
+        else {
+            _ = attempt(-1, "unsupported tap format")
+            return
+        }
 
         let aggregate: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Murmur Tap",
@@ -108,36 +181,48 @@ final class SystemCapture {
                 [kAudioSubTapDriftCompensationKey: true, kAudioSubTapUIDKey: description.uuid.uuidString]
             ],
         ]
-        check(AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID), "create aggregate device")
+        guard
+            attempt(
+                AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID), "create aggregate device")
+        else { return }
 
-        let queue = DispatchQueue(label: "audiocap.system", qos: .userInteractive)
-        check(
-            AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, queue) { [weak self] _, inputData, _, _, _ in
-                guard let self, let writer = self.writer,
-                    let buffer = AVAudioPCMBuffer(pcmFormat: tapFormat, bufferListNoCopy: inputData, deallocator: nil)
-                else { return }
-                writer.write(buffer)
-            }, "create IO proc")
-        check(AudioDeviceStart(aggregateID, procID), "start aggregate device")
-        log("capturing system audio at \(Int(tapFormat.sampleRate)) Hz")
+        let audio = DispatchQueue(label: "audiocap.system", qos: .userInteractive)
+        let created = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, audio) {
+            [weak self] _, inputData, _, _, _ in
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: tapFormat, bufferListNoCopy: inputData, deallocator: nil)
+            else { return }
+            writer.write(buffer)
+            guard let self else { return }
+            self.lastBuffer.lock()
+            self.lastBufferAt = .now()
+            self.lastBuffer.unlock()
+        }
+        guard attempt(created, "create IO proc"), attempt(AudioDeviceStart(aggregateID, procID), "start aggregate device")
+        else { return }
+        log("capturing system audio at \(Int(tapFormat.sampleRate)) Hz from \(outputUID)")
     }
 
-    func stop() {
+    /// Must run on `queue`.
+    private func teardown() {
         if let procID {
             AudioDeviceStop(aggregateID, procID)
             AudioDeviceDestroyIOProcID(aggregateID, procID)
         }
+        procID = nil
         if aggregateID != kAudioObjectUnknown { AudioHardwareDestroyAggregateDevice(aggregateID) }
+        aggregateID = AudioObjectID(kAudioObjectUnknown)
         if tapID != kAudioObjectUnknown { AudioHardwareDestroyProcessTap(tapID) }
+        tapID = AudioObjectID(kAudioObjectUnknown)
     }
 
-    private func property<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) -> T {
+    private func property<T>(_ object: AudioObjectID, _ selector: AudioObjectPropertySelector) throws -> T {
         var address = AudioObjectPropertyAddress(
             mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
         var size = UInt32(MemoryLayout<T>.size)
         let value = UnsafeMutablePointer<T>.allocate(capacity: 1)
         defer { value.deallocate() }
-        check(AudioObjectGetPropertyData(object, &address, 0, nil, &size, value), "read property \(selector)")
+        let status = AudioObjectGetPropertyData(object, &address, 0, nil, &size, value)
+        if status != noErr { throw CaptureError("read property \(selector) failed (OSStatus \(status))") }
         return value.move()
     }
 }

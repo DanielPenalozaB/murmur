@@ -206,10 +206,12 @@ export function LiveView() {
         </div>
       )}
 
-      {(error || silent.length > 0) && (
+      {(error || silent.length > 0 || status?.mic_silent) && (
         <div className="mx-8 mb-3 rounded-lg bg-accent-soft px-4 py-2.5 text-[13px] text-on-accent-soft">
           {error ??
-            `No ${silent.join(" or ")} received yet. Check System Settings → Privacy & Security (Microphone / Screen & System Audio Recording) and allow your terminal or Murmur.`}
+            (silent.length > 0
+              ? `No ${silent.join(" or ")} received yet. Check System Settings → Privacy & Security (Microphone / Screen & System Audio Recording) and allow your terminal or Murmur.`
+              : "Your microphone is sending pure silence, so nothing you say is captured. It may be muted on the headset itself, or macOS is using another input — check System Settings → Sound → Input.")}
         </div>
       )}
 

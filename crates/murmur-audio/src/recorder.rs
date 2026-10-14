@@ -39,6 +39,13 @@ struct Track {
 const MAX_GAP_MS: u64 = 500;
 /// Wait between attempts to restart a helper that exited.
 const RESTART_DELAY: Duration = Duration::from_secs(1);
+/// A helper that is running but has sent nothing for this long is restarted.
+const STALL: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 });
+/// A real microphone always picks up some noise. Exact zeros this long mean the
+/// device is muted in hardware or capture broke; the helper is restarted once per run.
+const DIGITAL_SILENCE_RESTART_MS: u64 = if cfg!(test) { 1_000 } else { 20_000 };
+/// The UI warns about a silent microphone after this long.
+const DIGITAL_SILENCE_WARN_MS: u64 = 5_000;
 
 /// Keeps one channel's helper running for the whole recording, restarting it if it
 /// exits, and forwards its frames to the writer over one channel that outlives it.
@@ -61,10 +68,35 @@ impl Supervisor {
         let thread = {
             let (helper, stopping, path) = (helper.clone(), stopping.clone(), path.to_path_buf());
             thread::spawn(move || {
+                // Restarting doesn't help a headset that is muted; once per run is enough.
+                let mut restarted_for_silence = false;
                 loop {
-                    for frame in &frames {
-                        if tx.send(frame).is_err() {
-                            return;
+                    let mut last_frame = Instant::now();
+                    loop {
+                        match frames.recv_timeout(Duration::from_secs(1)) {
+                            Ok(frame) => {
+                                last_frame = Instant::now();
+                                if tx.send(frame).is_err() {
+                                    return;
+                                }
+                            }
+                            Err(RecvTimeoutError::Disconnected) => break,
+                            Err(RecvTimeoutError::Timeout) => {}
+                        }
+                        // Stuck helpers don't exit by themselves; stopping one makes
+                        // its frames end, and it's restarted below.
+                        let silent_ms = meters.digital_silence_ms.load(Ordering::Relaxed);
+                        if silent_ms == 0 {
+                            restarted_for_silence = false;
+                        }
+                        // System audio is exactly zero whenever nothing plays.
+                        let silent = channel == Channel::Mic
+                            && !restarted_for_silence
+                            && silent_ms >= DIGITAL_SILENCE_RESTART_MS;
+                        if last_frame.elapsed() >= STALL || silent {
+                            tracing::warn!(?channel, silent, "capture stalled; restarting");
+                            restarted_for_silence |= silent;
+                            helper.lock().unwrap().stop();
                         }
                     }
                     // The helper exited. Expected on stop; otherwise bring it back.
@@ -122,6 +154,8 @@ struct Meters {
     speaking: AtomicBool,
     /// Times the helper had to be restarted.
     restarts: AtomicU32,
+    /// How long the helper has been sending exact zeros (not counting Murmur's mute).
+    digital_silence_ms: AtomicU64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -145,6 +179,9 @@ pub struct RecorderStatus {
     pub mic_muted: bool,
     /// How often capture had to be restarted (device changes, crashes).
     pub restarts: u32,
+    /// The microphone sends pure digital silence: muted on the headset, or a device
+    /// that isn't delivering audio. Distinct from a quiet room, which has some noise.
+    pub mic_silent: bool,
 }
 
 /// Where speech goes for transcription.
@@ -274,6 +311,8 @@ impl Recorder {
                 .iter()
                 .map(|t| t.meters.restarts.load(Ordering::Relaxed))
                 .sum(),
+            mic_silent: meters(Channel::Mic)
+                .is_some_and(|m| m.digital_silence_ms.load(Ordering::Relaxed) >= DIGITAL_SILENCE_WARN_MS),
         }
     }
 
@@ -369,7 +408,14 @@ fn spawn_writer(mut t: TrackWriter) -> JoinHandle<Result<(), hound::Error>> {
             match received {
                 Ok(mut frame) => {
                     t.meters.frames.fetch_add(1, Ordering::Relaxed);
-                    if t.muted.load(Ordering::Relaxed) {
+                    let muted = t.muted.load(Ordering::Relaxed);
+                    if !muted && frame.iter().all(|&s| s == 0.0) {
+                        let ms = samples_to_ms(frame.len() as u64);
+                        t.meters.digital_silence_ms.fetch_add(ms, Ordering::Relaxed);
+                    } else {
+                        t.meters.digital_silence_ms.store(0, Ordering::Relaxed);
+                    }
+                    if muted {
                         frame.fill(0.0);
                     }
                     t.meters.level.store(meter(&frame).to_bits(), Ordering::Relaxed);
@@ -518,6 +564,52 @@ mod tests {
         assert!(samples.len() >= ms_to_samples(1_000) as usize);
         assert!(samples.iter().all(|&s| s == 0.0));
         assert!(h.chunks.try_recv().is_err(), "no speech chunk while muted");
+    }
+
+    /// A stand-in for `audiocap` running `body` as a shell script.
+    fn fake_helper(dir: &Path, body: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join("audiocap");
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+
+    #[test]
+    fn a_helper_that_hangs_is_restarted() {
+        let dir = tempfile::tempdir().unwrap();
+        // One frame, then nothing, without exiting (a stuck Core Audio device).
+        let helper = fake_helper(dir.path(), "head -c 6400 /dev/zero; exec sleep 60");
+        let recorder = Recorder::start(&helper, &dir.path().join("session"), None).unwrap();
+        wait_for("restarts", || recorder.status().restarts >= 2);
+        recorder.stop().unwrap();
+    }
+
+    #[test]
+    fn a_mic_sending_pure_silence_is_flagged_and_restarted() {
+        let dir = tempfile::tempdir().unwrap();
+        let helper = fake_helper(
+            dir.path(),
+            "while true; do head -c 6400 /dev/zero || exit 0; sleep 0.1; done",
+        );
+        let recorder = Recorder::start(&helper, &dir.path().join("session"), None).unwrap();
+        wait_for("a restart", || recorder.status().restarts >= 1);
+        // The restarted mic still sends zeros: the UI keeps warning, no restart loop.
+        wait_for("the warning", || recorder.status().mic_silent);
+        thread::sleep(Duration::from_millis(1_500));
+        assert_eq!(recorder.status().restarts, 1);
+        recorder.set_muted(Channel::Mic, true);
+        thread::sleep(Duration::from_millis(300));
+        assert!(!recorder.status().mic_silent, "muting in Murmur isn't a problem");
+        recorder.stop().unwrap();
     }
 
     #[test]

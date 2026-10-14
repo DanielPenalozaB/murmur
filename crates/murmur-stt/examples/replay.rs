@@ -9,6 +9,9 @@
 //! `audio.json` is undone so the pipeline hears what it heard live. Sessions from
 //! before `audio.json` existed can pass `MURMUR_MIC_GAIN_DB` / `MURMUR_SYSTEM_GAIN_DB`.
 //!
+//! Like the app, lines in which the speaker model hears no voice are dropped;
+//! `MURMUR_KEEP_UNHEARD=1` keeps them and shows each line's speech coverage instead.
+//!
 //! `MURMUR_STT_TRACE=1` prints every language decision and transcribed line with its
 //! loudness and confidence.
 
@@ -17,7 +20,7 @@ use std::time::Instant;
 
 use murmur_audio::{SAMPLE_RATE, read_wav, speech_chunks};
 use murmur_core::{Channel, Segment};
-use murmur_stt::speakers::{Diarizer, EMBEDDING_MODEL, label_segments};
+use murmur_stt::speakers::{Diarizer, EMBEDDING_MODEL, drop_unheard, label_segments, speech_coverage};
 use murmur_stt::{MeetingTranscriber, Transcriber, WhisperModel};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let started = Instant::now();
     let mut segments: Vec<Segment> = Vec::new();
     let mut system = Vec::new();
+    let mut mic = Vec::new();
     for (channel, file) in [(Channel::Mic, "mic.wav"), (Channel::System, "system.wav")] {
         let path = dir.join(file);
         if !path.exists() {
@@ -65,6 +69,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             chunk.start_ms += (from * 1000.0) as u64;
             segments.extend(transcriber.transcribe(&chunk)?);
         }
+        if channel == Channel::Mic {
+            mic = samples.clone();
+        }
         if channel == Channel::System {
             // Diarization doesn't depend on volume; it reads the boosted track in the app too.
             system = samples;
@@ -74,6 +81,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let t = Instant::now();
     let mut speakers = 0;
+    let mut turns = Vec::new();
+    let mut dropped = 0;
+    let keep_unheard = std::env::var("MURMUR_KEEP_UNHEARD").is_ok();
     if !system.is_empty() {
         // MURMUR_CLUSTER_THRESHOLD tries another speaker clustering threshold.
         let diarizer = match std::env::var("MURMUR_CLUSTER_THRESHOLD") {
@@ -86,7 +96,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             turn.start_ms += offset;
             turn.end_ms += offset;
         }
+        // MURMUR_KEEP_UNHEARD=1 shows the lines the app drops, with their coverage.
+        if keep_unheard {
+            turns = diarization.turns.clone();
+        } else {
+            dropped += drop_unheard(&mut segments, Channel::System, &diarization.turns);
+        }
         speakers = label_segments(&mut segments, &diarization).len();
+    }
+    let mut mic_turns = Vec::new();
+    if !mic.is_empty() {
+        let mut turns = Diarizer::load(&models.join("speakers"))?.run(&mic)?.turns;
+        let offset = (from * 1000.0) as u64;
+        for turn in &mut turns {
+            turn.start_ms += offset;
+            turn.end_ms += offset;
+        }
+        if keep_unheard {
+            mic_turns = turns;
+        } else {
+            dropped += drop_unheard(&mut segments, Channel::Mic, &turns);
+        }
     }
 
     segments.sort_by_key(|s| s.start);
@@ -97,10 +127,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ => "Them".to_string(),
         };
         let at = s.start / 1000;
-        println!("{:02}:{:02}  {who:<11} {}", at / 60, at % 60, s.text);
+        let covered = if !keep_unheard {
+            String::new()
+        } else if s.channel == Channel::System {
+            format!("{:>3.0}%", 100.0 * speech_coverage(s, &turns))
+        } else if !mic_turns.is_empty() {
+            format!("{:>3.0}%", 100.0 * speech_coverage(s, &mic_turns))
+        } else {
+            "    ".into()
+        };
+        println!("{:02}:{:02} {covered:>4} {who:<11} {}", at / 60, at % 60, s.text);
     }
     eprintln!(
-        "{} segments, {speakers} speakers; transcribed in {transcribed:.1?}, speakers in {:.1?}",
+        "{} segments ({dropped} with no voice dropped), {speakers} speakers; transcribed in {transcribed:.1?}, speakers in {:.1?}",
         segments.len(),
         t.elapsed()
     );

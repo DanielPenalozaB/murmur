@@ -27,6 +27,9 @@ const SPARSE_WORDS_PER_SECOND: f32 = 0.8;
 const MAX_REPEAT_WORDS: usize = 6;
 /// How far back a repeat is looked for.
 const REPEAT_WINDOW_MS: u64 = 120_000;
+/// Whisper sometimes loops, writing one line several times in a row. Any line equal to
+/// the one just before it, this soon after, is dropped whatever its length.
+const LOOP_GAP_MS: u64 = 10_000;
 
 #[derive(Default)]
 pub struct ChannelFilter {
@@ -34,6 +37,8 @@ pub struct ChannelFilter {
     speech_db: Option<f32>,
     /// Recent short lines (start ms, normalized text).
     recent: VecDeque<(u64, String)>,
+    /// The last line kept (start ms, end ms, normalized text).
+    last: Option<(u64, u64, String)>,
 }
 
 impl ChannelFilter {
@@ -54,6 +59,13 @@ impl ChannelFilter {
     /// utterance start at the same time and don't count as repeats.
     pub fn repeated(&mut self, segment: &Segment) -> bool {
         let text = normalize(&segment.text);
+        let looped = self.last.as_ref().is_some_and(|(start, end, t)| {
+            *t == text && *start != segment.start && segment.start <= end + LOOP_GAP_MS
+        });
+        if looped {
+            return true;
+        }
+        self.last = Some((segment.start, segment.end, text.clone()));
         if text.split(' ').count() > MAX_REPEAT_WORDS {
             return false;
         }
@@ -80,6 +92,40 @@ pub fn too_sparse(chunk: &SpeechChunk, segments: &[Segment]) -> bool {
     let words: usize = segments.iter().map(|s| s.text.split_whitespace().count()).sum();
     seconds >= SPARSE_MIN_SECONDS && (words as f32) < SPARSE_WORDS_PER_SECOND * seconds
 }
+
+/// Whether `text` has letters the meeting's languages don't use, like "något" or
+/// Hebrew in an English/Spanish meeting. Whisper drifts into other languages on
+/// noise and music even when told which language to write. Languages without a
+/// known alphabet here allow everything.
+pub fn foreign_letters(text: &str, languages: &[String]) -> bool {
+    let mut allowed = String::new();
+    for language in languages {
+        match LATIN_LETTERS.iter().find(|(code, _)| code == language) {
+            Some((_, extra)) => allowed.push_str(extra),
+            None => return false,
+        }
+    }
+    if languages.is_empty() {
+        return false;
+    }
+    text.chars()
+        .filter(|c| c.is_alphabetic() && !c.is_ascii_alphabetic())
+        .flat_map(char::to_lowercase)
+        .any(|c| !allowed.contains(c))
+}
+
+/// Letters beyond a–z each Latin-script language writes (loanwords like "café" are
+/// common in English).
+const LATIN_LETTERS: [(&str, &str); 8] = [
+    ("en", "éè"),
+    ("es", "áéíóúüñ"),
+    ("pt", "áâãàçéêíóôõúü"),
+    ("fr", "àâæçéèêëîïôœùûüÿ"),
+    ("de", "äöüß"),
+    ("it", "àèéìíîòóùú"),
+    ("nl", "éëïóöü"),
+    ("ca", "àçéèíïóòúü"),
+];
 
 /// Loudness of the louder frames (90th percentile), in dBFS: how loud the speech in
 /// a chunk is, ignoring the pauses around it.
@@ -148,7 +194,7 @@ mod tests {
         assert!(!f.repeated(&seg(300_000, "Thank you.")), "long after");
         let long = "We agreed to ship the release on Friday afternoon.";
         assert!(!f.repeated(&seg(301_000, long)));
-        assert!(!f.repeated(&seg(302_000, long)), "long lines may repeat");
+        assert!(!f.repeated(&seg(330_000, long)), "long lines may repeat");
     }
 
     #[test]
@@ -167,6 +213,31 @@ mod tests {
             ..long
         };
         assert!(!too_sparse(&short, &[seg(0, "Sí.")]), "short replies are fine");
+    }
+
+    #[test]
+    fn drops_a_line_whisper_loops_on() {
+        let mut f = ChannelFilter::default();
+        let line = "I'll turn up from the camera.";
+        assert!(!f.repeated(&seg(78_000, line)));
+        assert!(f.repeated(&seg(79_000, line)));
+        assert!(f.repeated(&seg(80_000, line)));
+        assert!(!f.repeated(&seg(200_000, line)), "said again much later");
+    }
+
+    #[test]
+    fn letters_outside_the_meeting_languages_are_foreign() {
+        let en_es = ["en".to_string(), "es".to_string()];
+        assert!(foreign_letters("I'll be bö WildCash något", &en_es));
+        assert!(foreign_letters("give a celebration like aונה?", &en_es));
+        assert!(!foreign_letters("¿Quién toma la tarea? Mañana, sí.", &en_es));
+        assert!(!foreign_letters("Let's grab a café after the demo.", &en_es));
+        assert!(!foreign_letters("Ich höre", &["de".to_string()]));
+        assert!(
+            !foreign_letters("何でも", &["ja".to_string()]),
+            "unknown alphabet"
+        );
+        assert!(!foreign_letters("något", &[]), "auto-detect allows all");
     }
 
     #[test]

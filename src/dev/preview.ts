@@ -1,6 +1,6 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|empty|start|library|session|retranscribing|search|speakers|settings`.
+// `?preview&view=live|live-muted|live-silent|empty|start|library|session|retranscribing|search|speakers|settings`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
@@ -151,7 +151,7 @@ const settings: Settings = {
 export function install() {
   const params = new URLSearchParams(location.search);
   const view = params.get("view") ?? "live";
-  const recording = view === "live" || view === "live-muted";
+  const recording = view === "live" || view === "live-muted" || view === "live-silent";
   let micMuted = view === "live-muted";
   // "start" shows the New session dialog; "empty" the idle Live screen.
   if (view === "start") useUi.setState({ startOpen: true });
@@ -225,7 +225,8 @@ export function install() {
               mic_receiving: true,
               system_receiving: true,
               mic_muted: micMuted,
-              restarts: 0,
+              restarts: view === "live-silent" ? 1 : 0,
+              mic_silent: view === "live-silent" && !micMuted,
             }
           : null;
       case "list_models":

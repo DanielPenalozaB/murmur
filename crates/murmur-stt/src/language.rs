@@ -16,7 +16,7 @@ use murmur_audio::{SAMPLE_RATE, SpeechChunk};
 use murmur_core::{Channel, Segment};
 use whisper_rs::WhisperState;
 
-use crate::filter::{ChannelFilter, too_sparse};
+use crate::filter::{ChannelFilter, foreign_letters, too_sparse};
 use crate::{SttError, Transcriber, WhisperModel, WhisperTranscriber};
 
 const RATE: usize = SAMPLE_RATE as usize;
@@ -299,6 +299,8 @@ fn update_prior(prior: &mut [f32], language: usize, seconds: f32) {
 pub struct MeetingTranscriber {
     whisper: WhisperTranscriber,
     language: Option<String>,
+    /// The meeting's languages; empty when Whisper picks.
+    languages: Vec<String>,
     detector: Option<LanguageDetector>,
     /// Per channel (mic, system), what it has been speaking.
     priors: [Vec<f32>; 2],
@@ -317,6 +319,7 @@ impl MeetingTranscriber {
             return Ok(MeetingTranscriber {
                 whisper,
                 language: languages.first().cloned(),
+                languages: languages.to_vec(),
                 detector: None,
                 priors: Default::default(),
                 filters: Default::default(),
@@ -333,6 +336,7 @@ impl MeetingTranscriber {
         Ok(MeetingTranscriber {
             whisper,
             language: None,
+            languages: languages.to_vec(),
             detector: Some(detector),
             priors: [uniform.clone(), uniform],
             filters: Default::default(),
@@ -370,7 +374,8 @@ impl Transcriber for MeetingTranscriber {
             return Ok(Vec::new());
         }
         let filter = &mut self.filters[ch];
-        segments.retain(|s| !filter.repeated(s));
+        let languages = &self.languages;
+        segments.retain(|s| !foreign_letters(&s.text, languages) && !filter.repeated(s));
         Ok(segments)
     }
 }

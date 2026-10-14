@@ -16,17 +16,14 @@ use crate::library::LibraryState;
 pub struct SpeakersState(Mutex<Option<Diarizer>>);
 
 /// Finds who spoke when in `<dir>/system.wav`, labels the system-audio segments
-/// (`speaker_1`, `speaker_2`…) and names the ones whose voice is remembered.
+/// (`speaker_1`, `speaker_2`…) and names the ones whose voice is remembered. Lines on
+/// either track in which the speaker model hears no voice (music, hold tunes, a
+/// "Thank you." Whisper made up from mic noise) are removed.
 pub fn identify(
     app: &AppHandle,
     dir: &Path,
-    segments: &mut [Segment],
+    segments: &mut Vec<Segment>,
 ) -> Result<Vec<SessionSpeaker>, String> {
-    if !segments.iter().any(|s| s.channel == Channel::System) {
-        return Ok(Vec::new());
-    }
-    let samples = murmur_audio::read_wav(&dir.join("system.wav")).map_err(|e| e.to_string())?;
-
     let state = app.state::<SpeakersState>();
     let mut slot = state.0.lock().unwrap();
     if slot.is_none() {
@@ -40,12 +37,20 @@ pub fn identify(
             .map_err(|e| format!("{e}. Run scripts/download-models.sh to download the speaker models."))?;
         *slot = Some(diarizer);
     }
+    let diarizer = slot.as_ref().expect("loaded above");
+
+    if segments.iter().any(|s| s.channel == Channel::Mic) {
+        let samples = murmur_audio::read_wav(&dir.join("mic.wav")).map_err(|e| e.to_string())?;
+        let turns = diarizer.run(&samples).map_err(|e| e.to_string())?.turns;
+        let dropped = speakers::drop_unheard(segments, Channel::Mic, &turns);
+        tracing::info!("dropped {dropped} mic lines with no voice in them");
+    }
+    if !segments.iter().any(|s| s.channel == Channel::System) {
+        return Ok(Vec::new());
+    }
+    let samples = murmur_audio::read_wav(&dir.join("system.wav")).map_err(|e| e.to_string())?;
     let started = std::time::Instant::now();
-    let diarization = slot
-        .as_ref()
-        .expect("loaded above")
-        .run(&samples)
-        .map_err(|e| e.to_string())?;
+    let diarization = diarizer.run(&samples).map_err(|e| e.to_string())?;
     drop(slot);
     tracing::info!(
         "{} speakers in {:?} for {} s of audio",
@@ -53,6 +58,8 @@ pub fn identify(
         started.elapsed(),
         samples.len() / murmur_audio::SAMPLE_RATE as usize
     );
+    let dropped = speakers::drop_unheard(segments, Channel::System, &diarization.turns);
+    tracing::info!("dropped {dropped} call-audio lines with no voice in them");
 
     let voiceprints = speakers::label_segments(segments, &diarization);
     let known = app

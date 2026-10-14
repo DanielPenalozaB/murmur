@@ -42,6 +42,8 @@ export type RecorderStatus = {
   /** The user turned their mic off in Murmur. */
   mic_muted: boolean;
   restarts: number;
+  /** The mic sends pure digital silence: muted on the headset, or not delivering. */
+  mic_silent: boolean;
 };
 
 export type RetranscribeEvent =
