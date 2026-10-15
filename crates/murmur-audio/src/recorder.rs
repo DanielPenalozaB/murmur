@@ -328,7 +328,12 @@ impl Recorder {
         for track in self.tracks {
             track.supervisor.stop();
             // The supervisor dropped its sender, so the writer's channel closes and it ends.
-            track.writer.join().expect("writer thread panicked")?;
+            match track.writer.join() {
+                Ok(written) => written?,
+                // The WAV is finalized as the writer unwinds; keep what it recorded and
+                // still finish the other track.
+                Err(_) => tracing::error!(channel = ?track.channel, "recording thread failed"),
+            }
             let gain = crate::normalize_wav(&track.path)?;
             files.push(TrackFile {
                 channel: track.channel,
@@ -372,23 +377,36 @@ impl TrackWriter {
         self.written += frame.len() as u64;
         self.meters.samples.store(self.written, Ordering::Relaxed);
         if let Some(vad) = &mut self.vad {
-            for chunk in vad.segmenter.push(frame) {
-                let _ = vad.senders.finals.send(chunk);
-                vad.since_draft = 0;
+            // The recording matters more than live transcription: a bug in speech
+            // detection loses at most the utterance in progress, never the audio.
+            let step = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vad.listen(frame)));
+            if step.is_err() {
+                tracing::error!("speech detection failed; resetting it");
+                vad.segmenter.reset();
             }
             self.meters
                 .speaking
                 .store(vad.segmenter.in_speech(), Ordering::Relaxed);
-            vad.since_draft += frame.len() as u64;
-            if let Some(drafts) = &vad.senders.drafts
-                && samples_to_ms(vad.since_draft) >= DRAFT_EVERY_MS
-                && let Some(open) = vad.segmenter.open_chunk(1_000)
-            {
-                let _ = drafts.send(open);
-                vad.since_draft = 0;
-            }
         }
         Ok(())
+    }
+}
+
+impl Vad {
+    /// Feeds `frame` to the segmenter and sends finished chunks and drafts.
+    fn listen(&mut self, frame: &[f32]) {
+        for chunk in self.segmenter.push(frame) {
+            let _ = self.senders.finals.send(chunk);
+            self.since_draft = 0;
+        }
+        self.since_draft += frame.len() as u64;
+        if let Some(drafts) = &self.senders.drafts
+            && samples_to_ms(self.since_draft) >= DRAFT_EVERY_MS
+            && let Some(open) = self.segmenter.open_chunk(1_000)
+        {
+            let _ = drafts.send(open);
+            self.since_draft = 0;
+        }
     }
 }
 

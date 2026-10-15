@@ -126,6 +126,18 @@ impl Segmenter {
         })
     }
 
+    /// Drops the utterance in progress and starts listening afresh, keeping the session
+    /// position so later chunks still get the right timestamps.
+    pub fn reset(&mut self) {
+        self.pending.clear();
+        self.pre_roll.clear();
+        self.chunk.clear();
+        self.scores.clear();
+        self.in_speech = false;
+        self.silence = 0;
+        self.speech = 0;
+    }
+
     /// Emits the in-progress chunk, if any (call when recording stops).
     pub fn flush(&mut self) -> Option<SpeechChunk> {
         if !self.in_speech {
@@ -205,6 +217,8 @@ impl Segmenter {
         let head_start = self.chunk_start;
         self.chunk_start += head.len() as u64;
         self.speech = self.chunk.len();
+        // Silence before the cut went out with the head; only what's left counts.
+        self.silence = self.silence.min(self.chunk.len());
         let head_speech = head.len();
         self.emit(head_start, head, head_speech)
     }
@@ -273,6 +287,20 @@ mod tests {
         let ms = c.samples.len() as u64 * 1000 / 16_000;
         // pre-roll 300 + speech 1024 + tail ~200
         assert!((1_500..=1_560).contains(&ms), "length {ms}");
+    }
+
+    #[test]
+    fn a_long_utterance_cut_during_a_pause_keeps_going() {
+        // Talking up to the 15 s limit and pausing just before it, wherever the cut
+        // lands: the pause before the cut must not count against the next chunk.
+        for talk_ms in (13_800..14_800).step_by(16) {
+            let mut seg = segmenter(SegmenterConfig::default());
+            let mut chunks = seg.push(&audio(talk_ms, true));
+            chunks.extend(seg.push(&audio(1_500, false)));
+            chunks.extend(seg.flush());
+            let total: usize = chunks.iter().map(|c| c.samples.len()).sum();
+            assert!(total >= ms_to_samples(talk_ms), "speech lost at {talk_ms} ms");
+        }
     }
 
     #[test]
