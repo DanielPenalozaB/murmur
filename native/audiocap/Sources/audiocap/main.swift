@@ -139,12 +139,12 @@ final class SystemCapture {
         lastBuffer.lock()
         let seconds = Double(DispatchTime.now().uptimeNanoseconds - windowStart.uptimeNanoseconds) / 1e9
         let frames = windowFrames
-        if seconds >= 3 {
+        if seconds >= 1.5 {
             windowFrames = 0
             windowStart = .now()
         }
         lastBuffer.unlock()
-        guard seconds >= 3, rate > 0 else { return }
+        guard seconds >= 1.5, rate > 0 else { return }
         let measured = Double(frames) / seconds
         guard abs(measured / rate - 1) > 0.15 else { return }
         let common: [Double] = [8_000, 11_025, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 88_200, 96_000]
