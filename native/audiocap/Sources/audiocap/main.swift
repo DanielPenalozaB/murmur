@@ -84,6 +84,13 @@ final class SystemCapture {
     private let lastBuffer = NSLock()
     private var lastBufferAt = DispatchTime.now()
     private var rebuilds = 0
+    /// The rate buffers are interpreted at, and frames counted since `windowStart`
+    /// (under `lastBuffer`), to check it against the rate audio really arrives at.
+    private var rate: Double = 0
+    private var windowFrames = 0
+    private var windowStart = DispatchTime.now()
+    /// A rate measured to differ from what the device reports, used on the next build.
+    private var measuredRate: Double?
 
     func start() {
         queue.sync { build() }
@@ -95,6 +102,7 @@ final class SystemCapture {
             mElement: kAudioObjectPropertyElementMain)
         AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, queue) {
             [weak self] _, _ in
+            self?.measuredRate = nil
             self?.rebuild("output device changed")
         }
 
@@ -107,7 +115,11 @@ final class SystemCapture {
             self.lastBuffer.lock()
             let idle = DispatchTime.now().uptimeNanoseconds - self.lastBufferAt.uptimeNanoseconds
             self.lastBuffer.unlock()
-            if idle > 2_000_000_000 { self.rebuild("system audio delivered nothing for 2 s") }
+            if idle > 2_000_000_000 {
+                self.rebuild("system audio delivered nothing for 2 s")
+            } else {
+                self.checkRate()
+            }
         }
         timer.resume()
         watchdog = timer
@@ -118,6 +130,28 @@ final class SystemCapture {
             watchdog?.cancel()
             teardown()
         }
+    }
+
+    /// Must run on `queue`. Bluetooth headsets drop to 16 kHz while their mic is in
+    /// use, and the tap may keep reporting 48 kHz; read at the wrong rate the audio
+    /// comes out three times too fast. Counts what arrives and rebuilds at the real rate.
+    private func checkRate() {
+        lastBuffer.lock()
+        let seconds = Double(DispatchTime.now().uptimeNanoseconds - windowStart.uptimeNanoseconds) / 1e9
+        let frames = windowFrames
+        if seconds >= 3 {
+            windowFrames = 0
+            windowStart = .now()
+        }
+        lastBuffer.unlock()
+        guard seconds >= 3, rate > 0 else { return }
+        let measured = Double(frames) / seconds
+        guard abs(measured / rate - 1) > 0.15 else { return }
+        let common: [Double] = [8_000, 11_025, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 88_200, 96_000]
+        let snapped = common.min { abs($0 - measured) < abs($1 - measured) }!
+        guard snapped != rate else { return }
+        measuredRate = snapped
+        rebuild("system audio arrives at \(Int(measured)) Hz, not \(Int(rate)) Hz")
     }
 
     /// Must run on `queue`.
@@ -163,12 +197,6 @@ final class SystemCapture {
             _ = attempt(-1, "\(error)")
             return
         }
-        guard let tapFormat = AVAudioFormat(streamDescription: &asbd), let writer = PCMWriter(from: tapFormat)
-        else {
-            _ = attempt(-1, "unsupported tap format")
-            return
-        }
-
         let aggregate: [String: Any] = [
             kAudioAggregateDeviceNameKey: "Murmur Tap",
             kAudioAggregateDeviceUIDKey: UUID().uuidString,
@@ -186,6 +214,21 @@ final class SystemCapture {
                 AudioHardwareCreateAggregateDevice(aggregate as CFDictionary, &aggregateID), "create aggregate device")
         else { return }
 
+        // The tap's own format can disagree with the rate the device actually runs at.
+        let reported = asbd.mSampleRate
+        let nominal: Float64 = (try? property(aggregateID, kAudioDevicePropertyNominalSampleRate)) ?? 0
+        asbd.mSampleRate = measuredRate ?? (nominal > 0 ? nominal : reported)
+        guard let tapFormat = AVAudioFormat(streamDescription: &asbd), let writer = PCMWriter(from: tapFormat)
+        else {
+            _ = attempt(-1, "unsupported tap format")
+            return
+        }
+        lastBuffer.lock()
+        rate = asbd.mSampleRate
+        windowFrames = 0
+        windowStart = .now()
+        lastBuffer.unlock()
+
         let audio = DispatchQueue(label: "audiocap.system", qos: .userInteractive)
         let created = AudioDeviceCreateIOProcIDWithBlock(&procID, aggregateID, audio) {
             [weak self] _, inputData, _, _, _ in
@@ -195,11 +238,14 @@ final class SystemCapture {
             guard let self else { return }
             self.lastBuffer.lock()
             self.lastBufferAt = .now()
+            self.windowFrames += Int(buffer.frameLength)
             self.lastBuffer.unlock()
         }
         guard attempt(created, "create IO proc"), attempt(AudioDeviceStart(aggregateID, procID), "start aggregate device")
         else { return }
-        log("capturing system audio at \(Int(tapFormat.sampleRate)) Hz from \(outputUID)")
+        log(
+            "capturing system audio at \(Int(tapFormat.sampleRate)) Hz from \(outputUID)"
+                + " (tap reports \(Int(reported)) Hz, device \(Int(nominal)) Hz)")
     }
 
     /// Must run on `queue`.
