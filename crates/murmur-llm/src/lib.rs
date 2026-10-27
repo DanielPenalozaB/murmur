@@ -98,7 +98,10 @@ impl Prompt {
 }
 
 const SPEAKERS: &str = "Lines are `[mm:ss] Speaker: text`. \"Me\" is the user. Other speakers are people on \
-the call: by name, as \"Speaker 2\" when not yet named, or \"Them\" when unknown (possibly several people).";
+the call: by name, as \"Speaker 2\" when not yet named, or \"Them\" when unknown (possibly several people). \
+When the transcript makes clear who a numbered speaker is (someone calls on a person by name and that \
+speaker answers, or they introduce themselves), use the name with the label, like \"Priya (Speaker 5)\". \
+Speaker labels can be wrong for a line or two, so go by what most of their lines show.";
 
 /// A question asked during or after the meeting ("/btw …").
 pub fn ask_prompt(segments: &[Segment], names: &SpeakerNames, question: &str) -> Prompt {
