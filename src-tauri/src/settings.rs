@@ -21,6 +21,9 @@ pub struct Settings {
     pub llm: Provider,
     /// Write notes automatically when a recording finishes.
     pub auto_notes: bool,
+    /// Names and terms hinted to Whisper so it spells them right (people, products,
+    /// ticket prefixes). Remembered speakers' names are added automatically.
+    pub vocabulary: Vec<String>,
 }
 
 impl Default for Settings {
@@ -33,6 +36,7 @@ impl Default for Settings {
             languages: Vec::new(),
             llm: Provider::default(),
             auto_notes: true,
+            vocabulary: Vec::new(),
         }
     }
 }

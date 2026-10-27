@@ -146,6 +146,7 @@ const settings: Settings = {
   languages: ["en", "es"],
   llm: { kind: "ollama", base_url: "http://127.0.0.1:11434", model: "qwen3:14b", num_ctx: 32768 },
   auto_notes: true,
+  vocabulary: ["TKT", "Mariana", "Tomas", "Express Checkout"],
 };
 
 export function install() {

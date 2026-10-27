@@ -95,6 +95,7 @@ fn run(
     let (turbo, base) = recording::models(app)?;
     let mut transcriber =
         MeetingTranscriber::new(&turbo, Some(&base), languages).map_err(|e| e.to_string())?;
+    transcriber.set_vocabulary(&recording::vocabulary(app));
 
     // Cut both tracks into speech chunks the way the live recorder does, from the
     // audio as it was before the volume boost.

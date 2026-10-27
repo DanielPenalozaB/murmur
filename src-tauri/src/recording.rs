@@ -135,9 +135,22 @@ fn transcribers(
     languages: &[String],
 ) -> Result<(MeetingTranscriber, MeetingTranscriber), String> {
     let (model, base) = models(app)?;
-    let finals = MeetingTranscriber::new(&model, Some(&base), languages).map_err(|e| e.to_string())?;
-    let drafts = MeetingTranscriber::new(&base, Some(&base), languages).map_err(|e| e.to_string())?;
+    let terms = vocabulary(app);
+    let mut finals = MeetingTranscriber::new(&model, Some(&base), languages).map_err(|e| e.to_string())?;
+    let mut drafts = MeetingTranscriber::new(&base, Some(&base), languages).map_err(|e| e.to_string())?;
+    finals.set_vocabulary(&terms);
+    drafts.set_vocabulary(&terms);
     Ok((finals, drafts))
+}
+
+/// The user's vocabulary plus the names of remembered speakers.
+pub(crate) fn vocabulary(app: &AppHandle) -> Vec<String> {
+    let mut terms = app.state::<SettingsState>().0.lock().unwrap().vocabulary.clone();
+    match app.state::<LibraryState>().0.lock().unwrap().voices() {
+        Ok(voices) => terms.extend(voices.into_iter().map(|(name, _)| name)),
+        Err(e) => tracing::warn!("could not read remembered speakers: {e}"),
+    }
+    terms
 }
 
 /// Loads the models in the background at launch so the first Start is instant.

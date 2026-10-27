@@ -12,6 +12,9 @@
 //! Like the app, lines in which the speaker model hears no voice are dropped;
 //! `MURMUR_KEEP_UNHEARD=1` keeps them and shows each line's speech coverage instead.
 //!
+//! `MURMUR_VOCAB="TKT,Mariana"` hints names and terms to Whisper, like the app's
+//! vocabulary setting.
+//!
 //! `MURMUR_STT_TRACE=1` prints every language decision and transcribed line with its
 //! loudness and confidence.
 
@@ -47,6 +50,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &base
     };
     let mut transcriber = MeetingTranscriber::new(&turbo, Some(detector), &languages)?;
+    if let Ok(vocab) = std::env::var("MURMUR_VOCAB") {
+        let terms: Vec<String> = vocab.split(',').map(String::from).collect();
+        transcriber.set_vocabulary(&terms);
+    }
 
     let started = Instant::now();
     let mut segments: Vec<Segment> = Vec::new();

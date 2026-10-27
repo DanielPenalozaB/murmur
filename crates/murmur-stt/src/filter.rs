@@ -127,6 +127,44 @@ const LATIN_LETTERS: [(&str, &str); 8] = [
     ("ca", "àçéèíïóòúü"),
 ];
 
+/// How much vocabulary is given to Whisper. Its prompt holds about 220 tokens, and a
+/// long one crowds out the speech.
+const VOCABULARY_CHARS: usize = 600;
+/// What the vocabulary prompt starts with; Whisper sometimes writes it back.
+const VOCABULARY_INTRO: &str = "Names and terms";
+
+/// The prompt that hints `terms` (names, products, ticket prefixes) to Whisper, which
+/// then spells them as given instead of guessing ("Mariana", not "Maria Ana").
+pub fn vocabulary_prompt(terms: &[String]) -> Option<String> {
+    let mut seen: Vec<String> = Vec::new();
+    let mut list = String::new();
+    for term in terms.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+        let key = term.to_lowercase();
+        if seen.contains(&key) || list.len() + term.len() + 2 > VOCABULARY_CHARS {
+            continue;
+        }
+        seen.push(key);
+        if !list.is_empty() {
+            list.push_str(", ");
+        }
+        list.push_str(term);
+    }
+    (!list.is_empty()).then(|| format!("{VOCABULARY_INTRO}: {list}."))
+}
+
+/// Whether Whisper wrote the vocabulary prompt back instead of transcribing, which it
+/// does on noise: a line made only of vocabulary terms, or the prompt's own intro.
+pub fn echoes_vocabulary(text: &str, terms: &[String]) -> bool {
+    let line = normalize(text);
+    if line.contains(&normalize(VOCABULARY_INTRO)) {
+        return true;
+    }
+    let words: Vec<&str> = line.split(' ').filter(|w| !w.is_empty()).collect();
+    let known: Vec<String> = terms.iter().map(|t| normalize(t)).collect();
+    let known: Vec<&str> = known.iter().flat_map(|t| t.split(' ')).collect();
+    words.len() >= 3 && words.iter().all(|w| known.contains(w))
+}
+
 /// Loudness of the louder frames (90th percentile), in dBFS: how loud the speech in
 /// a chunk is, ignoring the pauses around it.
 pub fn speech_level_db(samples: &[f32]) -> f32 {
@@ -238,6 +276,30 @@ mod tests {
             "unknown alphabet"
         );
         assert!(!foreign_letters("något", &[]), "auto-detect allows all");
+    }
+
+    #[test]
+    fn vocabulary_becomes_one_short_prompt() {
+        let terms = ["TKT", " Mariana ", "", "tkt", "Priya"].map(String::from);
+        assert_eq!(
+            vocabulary_prompt(&terms).as_deref(),
+            Some("Names and terms: TKT, Mariana, Priya.")
+        );
+        assert_eq!(vocabulary_prompt(&[]), None);
+        let many: Vec<String> = (0..500).map(|i| format!("Term{i}")).collect();
+        assert!(vocabulary_prompt(&many).unwrap().len() <= VOCABULARY_CHARS + 30);
+    }
+
+    #[test]
+    fn a_line_that_only_repeats_the_vocabulary_is_an_echo() {
+        let terms = ["TKT", "Mariana", "Priya", "Ready for QA"].map(String::from);
+        assert!(echoes_vocabulary("Names and terms: TKT.", &terms));
+        assert!(echoes_vocabulary("TKT, Mariana, Priya.", &terms));
+        assert!(!echoes_vocabulary("Mariana, TKT 307 is ready for QA.", &terms));
+        assert!(
+            !echoes_vocabulary("Thanks, Mariana.", &terms),
+            "short replies with a name"
+        );
     }
 
     #[test]

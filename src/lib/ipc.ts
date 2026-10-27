@@ -27,6 +27,8 @@ export type Settings = {
   languages: string[];
   llm: Provider;
   auto_notes: boolean;
+  /** Names and terms hinted to Whisper. Remembered speakers are added automatically. */
+  vocabulary: string[];
 };
 
 export type RecorderStatus = {

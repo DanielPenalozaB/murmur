@@ -16,7 +16,7 @@ use murmur_audio::{SAMPLE_RATE, SpeechChunk};
 use murmur_core::{Channel, Segment};
 use whisper_rs::WhisperState;
 
-use crate::filter::{ChannelFilter, foreign_letters, too_sparse};
+use crate::filter::{ChannelFilter, echoes_vocabulary, foreign_letters, too_sparse, vocabulary_prompt};
 use crate::{SttError, Transcriber, WhisperModel, WhisperTranscriber};
 
 const RATE: usize = SAMPLE_RATE as usize;
@@ -305,9 +305,17 @@ pub struct MeetingTranscriber {
     /// Per channel (mic, system), what it has been speaking.
     priors: [Vec<f32>; 2],
     filters: [ChannelFilter; 2],
+    /// Names and terms hinted to Whisper.
+    vocabulary: Vec<String>,
 }
 
 impl MeetingTranscriber {
+    /// Hints names and terms to Whisper so it spells them as given.
+    pub fn set_vocabulary(&mut self, terms: &[String]) {
+        self.vocabulary = terms.to_vec();
+        self.whisper.set_prompt(vocabulary_prompt(terms));
+    }
+
     /// `detector_model` is required when `languages` has two or more entries.
     pub fn new(
         model: &Arc<WhisperModel>,
@@ -323,6 +331,7 @@ impl MeetingTranscriber {
                 detector: None,
                 priors: Default::default(),
                 filters: Default::default(),
+                vocabulary: Vec::new(),
             });
         }
         let detector_model = detector_model
@@ -340,6 +349,7 @@ impl MeetingTranscriber {
             detector: Some(detector),
             priors: [uniform.clone(), uniform],
             filters: Default::default(),
+            vocabulary: Vec::new(),
         })
     }
 }
@@ -374,8 +384,12 @@ impl Transcriber for MeetingTranscriber {
             return Ok(Vec::new());
         }
         let filter = &mut self.filters[ch];
-        let languages = &self.languages;
-        segments.retain(|s| !foreign_letters(&s.text, languages) && !filter.repeated(s));
+        let (languages, vocabulary) = (&self.languages, &self.vocabulary);
+        segments.retain(|s| {
+            !foreign_letters(&s.text, languages)
+                && !echoes_vocabulary(&s.text, vocabulary)
+                && !filter.repeated(s)
+        });
         Ok(segments)
     }
 }

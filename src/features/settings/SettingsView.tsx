@@ -7,6 +7,7 @@ import {
   KeyRound,
   Languages,
   ShieldCheck,
+  SpellCheck,
   Type,
   UsersRound,
 } from "lucide-react";
@@ -14,6 +15,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { PageHeader, Toggle, TopBar } from "../../components/ui";
 import { ipc, type Provider, type Settings } from "../../lib/ipc";
 import { languageHint } from "../recorder/StartDialog";
+import { parseVocabulary } from "./vocabulary";
 
 type Kind = Provider["kind"];
 
@@ -245,6 +247,44 @@ function Choice({
   );
 }
 
+/** Keeps what the user typed (a trailing comma, a blank line) while storing the list. */
+function VocabularyField({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (terms: string[]) => void;
+}) {
+  const [text, setText] = useState(() => value.join(", "));
+  // Follow outside changes, like Discard.
+  useEffect(() => {
+    setText((t) =>
+      JSON.stringify(parseVocabulary(t)) === JSON.stringify(value) ? t : value.join(", "),
+    );
+  }, [value]);
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="flex items-center gap-1.5 text-[14px] font-semibold">
+        <SpellCheck className="size-4" /> Vocabulary
+      </span>
+      <textarea
+        className="input min-h-[72px] resize-y bg-surface text-sm"
+        placeholder="TKT, Mariana, Express Checkout, ready for QA"
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          onChange(parseVocabulary(e.target.value));
+        }}
+      />
+      <span className="text-[12px] text-ink-soft">
+        Names, products and ticket prefixes Whisper should spell as written, separated by commas or
+        lines. Names of remembered speakers are included automatically. Applies to new recordings
+        and re-transcriptions.
+      </span>
+    </label>
+  );
+}
+
 export function SettingsView() {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: ipc.getSettings });
@@ -388,6 +428,10 @@ export function SettingsView() {
                 </span>
               </div>
             </div>
+            <VocabularyField
+              value={draft.vocabulary}
+              onChange={(vocabulary) => set({ vocabulary })}
+            />
             <Row
               icon={<UsersRound className="size-4" />}
               title="Speaker identification"
