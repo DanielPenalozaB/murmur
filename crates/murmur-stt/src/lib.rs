@@ -37,6 +37,10 @@ pub fn is_hallucination(text: &str) -> bool {
         return true;
     }
     let lower = t.to_lowercase();
+    // A lone "you" is Whisper's most common line for near-silence; nobody says just that.
+    if lower.trim_end_matches(|c: char| !c.is_alphanumeric()) == "you" {
+        return true;
+    }
     const KNOWN: [&str; 11] = [
         "thanks for watching",
         "thank you for watching",
@@ -69,6 +73,8 @@ mod tests {
             "Subtítulos realizados por la comunidad de Amara.org",
             "I'm going to go to the next video.",
             "CC por Antarctica Films Argentina",
+            "you",
+            " You. ",
         ] {
             assert!(is_hallucination(t), "{t:?}");
         }
@@ -76,7 +82,13 @@ mod tests {
 
     #[test]
     fn keeps_real_speech() {
-        for t in ["Thank you.", "Let's ship it on Friday.", "¿Quién toma la tarea?"] {
+        for t in [
+            "Thank you.",
+            "See you.",
+            "You too.",
+            "Let's ship it on Friday.",
+            "¿Quién toma la tarea?",
+        ] {
             assert!(!is_hallucination(t), "{t:?}");
         }
     }

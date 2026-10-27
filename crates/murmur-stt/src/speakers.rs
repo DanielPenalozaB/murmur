@@ -39,6 +39,10 @@ const FRAGMENT_MATCH: f32 = 0.5;
 /// Scraps shorter than this join the closest main speaker however unlike: a wrong
 /// guess for a "sí" beats a "Speaker 23" who said one word.
 const SCRAP_MS: u64 = 5_000;
+/// Main speakers this alike are one person the clustering split, usually after their
+/// mic or connection changed mid-call. In real meetings split halves scored 0.83–0.92
+/// and different people at most 0.62.
+const SAME_VOICE: f32 = 0.7;
 /// Audio used per speaker for their voiceprint, longest turns first.
 const VOICEPRINT_MS: u64 = 30_000;
 
@@ -131,19 +135,22 @@ impl Diarizer {
             .map(|speaker| self.voiceprint(samples, &turns, speaker))
             .collect::<Result<_, _>>()?;
 
-        let into = absorb_fragments(&turns, &voiceprints);
-        if into.iter().enumerate().all(|(i, &j)| i == j) {
-            return Ok(Diarization { turns, voiceprints });
+        let mut voiceprints = voiceprints;
+        for step in [absorb_fragments, merge_alike] {
+            let into = step(&turns, &voiceprints);
+            if into.iter().enumerate().all(|(i, &j)| i == j) {
+                continue;
+            }
+            let merged: Vec<(u64, u64, i32)> = turns
+                .iter()
+                .map(|t| (t.start_ms, t.end_ms, into[t.speaker] as i32))
+                .collect();
+            turns = renumber(&merged);
+            let count = turns.iter().map(|t| t.speaker + 1).max().unwrap_or(0);
+            voiceprints = (0..count)
+                .map(|speaker| self.voiceprint(samples, &turns, speaker))
+                .collect::<Result<_, _>>()?;
         }
-        let merged: Vec<(u64, u64, i32)> = turns
-            .iter()
-            .map(|t| (t.start_ms, t.end_ms, into[t.speaker] as i32))
-            .collect();
-        turns = renumber(&merged);
-        let count = turns.iter().map(|t| t.speaker + 1).max().unwrap_or(0);
-        let voiceprints = (0..count)
-            .map(|speaker| self.voiceprint(samples, &turns, speaker))
-            .collect::<Result<_, _>>()?;
         Ok(Diarization { turns, voiceprints })
     }
 
@@ -223,6 +230,47 @@ fn absorb_fragments(turns: &[SpeakerTurn], voiceprints: &[Vec<f32>]) -> Vec<usiz
                 .map_or(i, |(_, j)| j)
         })
         .collect()
+}
+
+/// For each speaker, who they really are after joining speakers that sound like the
+/// same person ([`SAME_VOICE`]). The most alike pair joins first; a joined speaker's
+/// voice is the talk-weighted mix of both, so one merge can't chain into unlike voices.
+fn merge_alike(turns: &[SpeakerTurn], voiceprints: &[Vec<f32>]) -> Vec<usize> {
+    let mut talk = vec![0u64; voiceprints.len()];
+    for t in turns {
+        talk[t.speaker] += t.end_ms - t.start_ms;
+    }
+    let mut into: Vec<usize> = (0..voiceprints.len()).collect();
+    let mut voices: Vec<Option<Vec<f32>>> = voiceprints
+        .iter()
+        .map(|v| (!v.is_empty()).then(|| v.clone()))
+        .collect();
+    loop {
+        let mut best: Option<(f32, usize, usize)> = None;
+        for i in 0..voices.len() {
+            for j in i + 1..voices.len() {
+                if let (Some(a), Some(b)) = (&voices[i], &voices[j]) {
+                    let score = similarity(a, b);
+                    if score >= SAME_VOICE && best.is_none_or(|(s, _, _)| score > s) {
+                        best = Some((score, i, j));
+                    }
+                }
+            }
+        }
+        let Some((_, i, j)) = best else { break };
+        // The one who talked more keeps their number.
+        let (keep, gone) = if talk[i] >= talk[j] { (i, j) } else { (j, i) };
+        let (a, b) = (voices[keep].take().unwrap(), voices[gone].take().unwrap());
+        let (wa, wb) = (talk[keep] as f32, talk[gone] as f32);
+        voices[keep] = Some(normalize(
+            a.iter().zip(&b).map(|(x, y)| x * wa + y * wb).collect(),
+        ));
+        talk[keep] += talk[gone];
+        for k in into.iter_mut().filter(|k| **k == gone) {
+            *k = keep;
+        }
+    }
+    into
 }
 
 fn ms_to_sample(ms: u64) -> usize {
@@ -479,6 +527,23 @@ mod tests {
             normalize(vec![0.0, 0.0, 1.0]),
         ];
         assert_eq!(absorb_fragments(&turns, &voiceprints), [0, 1, 1, 0, 4]);
+    }
+
+    #[test]
+    fn one_voice_split_in_two_is_merged_back() {
+        let turns = [
+            turn(0, 60_000, 0),
+            turn(60_000, 90_000, 1),
+            turn(90_000, 150_000, 2), // speaker 0 again, after a mic change
+            turn(150_000, 180_000, 3),
+        ];
+        let voiceprints = [
+            normalize(vec![1.0, 0.1, 0.0]),
+            normalize(vec![0.0, 1.0, 0.0]),
+            normalize(vec![0.9, 0.2, 0.1]),
+            normalize(vec![0.5, 0.5, 0.7]), // somewhat like both, but someone else
+        ];
+        assert_eq!(merge_alike(&turns, &voiceprints), [0, 1, 0, 3]);
     }
 
     #[test]
