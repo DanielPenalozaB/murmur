@@ -9,6 +9,8 @@ function VoiceCard({ voice }: { voice: VoiceEntry }) {
   const go = useNav((s) => s.go);
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  // Browser dialogs (window.confirm) don't show in the app's web view, so confirm inline.
+  const [confirming, setConfirming] = useState(false);
   const sessions = useQuery({
     queryKey: ["voice-sessions", voice.name],
     queryFn: () => ipc.sessionsWithSpeaker(voice.name),
@@ -45,16 +47,25 @@ function VoiceCard({ voice }: { voice: VoiceEntry }) {
         </div>
       </div>
       <div className="flex items-center justify-between">
-        <button
-          type="button"
-          className="btn-quiet text-accent"
-          onClick={() => {
-            if (window.confirm(`Forget ${voice.name}'s voice? Past notes keep the name.`))
-              forget.mutate();
-          }}
-        >
-          <Trash2 className="size-3.5" /> Forget voice
-        </button>
+        {confirming ? (
+          <span className="flex items-center gap-2 text-[13px]">
+            <span className="text-ink-soft">Forget {voice.name}? Past notes keep the name.</span>
+            <button type="button" className="btn-quiet text-accent" onClick={() => forget.mutate()}>
+              Forget
+            </button>
+            <button type="button" className="btn-quiet" onClick={() => setConfirming(false)}>
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="btn-quiet text-accent"
+            onClick={() => setConfirming(true)}
+          >
+            <Trash2 className="size-3.5" /> Forget voice
+          </button>
+        )}
         <button type="button" className="btn-ghost py-1" onClick={() => setOpen(!open)}>
           Meetings{" "}
           <ChevronDown className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
