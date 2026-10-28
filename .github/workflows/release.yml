@@ -1,0 +1,61 @@
+name: Release
+# A v* tag (matching the version in tauri.conf.json) builds Murmur.app and publishes
+# a GitHub Release with a .dmg and a .zip. Pull requests that change packaging, and
+# manual runs, build the same files as a workflow artifact without publishing.
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/actions/**
+      - scripts/package-release.sh
+      - src-tauri/tauri.conf.json
+      - src-tauri/Entitlements.plist
+      - src-tauri/build.rs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Murmur.app
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^ *"version": "\(.*\)",$/\1/p' src-tauri/tauri.conf.json | head -1)
+          [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but tauri.conf.json says $version"; exit 1; }
+      - uses: ./.github/actions/setup
+      - name: Build the app
+        run: pnpm tauri build --bundles app
+      - name: Package .dmg and .zip
+        run: ./scripts/package-release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: murmur-macos
+          path: target/release/dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: murmur-macos
+          path: dist
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "Murmur $GITHUB_REF_NAME" --generate-notes

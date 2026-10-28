@@ -18,36 +18,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      # sherpa-onnx-sys downloads its prebuilt library into target/, which the Rust
-      # cache prunes while keeping the build script's result, so linking later fails.
-      # Keep the library outside target/ in its own cache instead.
-      - name: Speaker model runtime version
-        id: sherpa
-        run: echo "version=$(grep -A1 'name = "sherpa-onnx-sys"' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
-        with:
-          path: ~/sherpa-onnx
-          key: sherpa-onnx-${{ steps.sherpa.outputs.version }}-osx-arm64-static
-      - name: Speaker model runtime
-        env:
-          VERSION: ${{ steps.sherpa.outputs.version }}
-        run: |
-          name="sherpa-onnx-v$VERSION-osx-arm64-static-lib"
-          if [ ! -d ~/sherpa-onnx/$name/lib ]; then
-            mkdir -p ~/sherpa-onnx
-            curl -fsSL "https://github.com/k2-fsa/sherpa-onnx/releases/download/v$VERSION/$name.tar.bz2" | tar -xj -C ~/sherpa-onnx
-          fi
-          echo "SHERPA_ONNX_LIB_DIR=$HOME/sherpa-onnx/$name/lib" >> "$GITHUB_ENV"
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup
       - name: Frontend checks (TypeScript, Biome)
         run: pnpm check
       - name: Frontend tests
