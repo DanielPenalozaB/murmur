@@ -58,7 +58,7 @@ function Card({
         <span className="truncate">{people.map((p) => (p === "Me" ? "You" : p)).join(", ")}</span>
         {total > 0 && (
           <span
-            className={`chip ml-auto ${card.actions_open === 0 ? "bg-local-soft text-on-local-soft" : "bg-muted text-ink"}`}
+            className={`chip ml-auto shrink-0 whitespace-nowrap ${card.actions_open === 0 ? "bg-local-soft text-on-local-soft" : "bg-muted text-ink"}`}
           >
             <CheckCircle2 className="size-3.5" />
             {card.actions_open === 0
@@ -200,7 +200,8 @@ export function FolderView({ folder }: { folder: string | null }) {
           )}
 
           {cards.length > 0 && (
-            <div className="grid grid-cols-[1fr_400px] items-start gap-6">
+            <div className="grid grid-cols-[minmax(0,1fr)_400px] items-start gap-6">
+              {/* minmax(0, …): a card with a long speaker list must not widen the column. */}
               <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between px-1">
                   <span className="eyebrow">Recent captures &amp; syntheses</span>
