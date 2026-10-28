@@ -33,7 +33,7 @@ jobs:
       - name: Speaker model runtime version
         id: sherpa
         run: echo "version=$(grep -A1 'name = "sherpa-onnx-sys"' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/sherpa-onnx
           key: sherpa-onnx-${{ steps.sherpa.outputs.version }}-osx-arm64-static
