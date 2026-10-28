@@ -18,13 +18,18 @@ export function MeetingBanner({ recording }: { recording: boolean }) {
   useEffect(() => {
     let active = true;
     const unlisten = ipc.onMeeting((m) => active && setMeeting(m));
+    const unlistenRecord = ipc.onRecordMeeting((m) => {
+      go({ kind: "live" });
+      setStartOpen(true, meetingTitle(m));
+    });
     // One may have been detected before this window loaded.
     ipc.detectedMeeting().then((m) => active && m && setMeeting(m));
     return () => {
       active = false;
       void unlisten.then((stop) => stop());
+      void unlistenRecord.then((stop) => stop());
     };
-  }, []);
+  }, [go, setStartOpen]);
 
   if (!meeting || recording) return null;
 

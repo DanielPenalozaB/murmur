@@ -33,7 +33,6 @@ fn app_info(settings: State<settings::SettingsState>) -> AppInfo {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
         .manage(recording::RecordingState::default())
         .manage(speakers::SpeakersState::default())
         .manage(retranscribe::RetranscribeState::default())
@@ -46,6 +45,12 @@ pub fn run() {
             recording::preload_model(handle);
             meeting::watch(handle);
             Ok(())
+        })
+        // Back in Murmur, the in-app banner takes over from the floating card.
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
+                meeting::close_popup(window.app_handle());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -78,6 +83,7 @@ pub fn run() {
             models::download_models,
             meeting::detected_meeting,
             meeting::dismiss_meeting,
+            meeting::record_meeting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

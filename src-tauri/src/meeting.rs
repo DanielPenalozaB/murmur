@@ -3,10 +3,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use murmur_audio::{MeetingApp, MeetingDetector, MeetingEvent, MicWatcher};
+use murmur_audio::{MeetingDetector, MeetingEvent, MicWatcher};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_notification::NotificationExt;
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::recording;
 use crate::settings::SettingsState;
@@ -74,39 +73,63 @@ fn handle(app: &AppHandle, event: MeetingEvent) {
             };
             *state.0.lock().unwrap() = Some(detected.clone());
             let _ = app.emit("meeting", Some(detected));
-            notify(app, meeting);
-        }
-        MeetingEvent::Ended => {
-            if state.0.lock().unwrap().take().is_some() {
-                let _ = app.emit("meeting", None::<DetectedMeeting>);
+            let focused = app
+                .get_webview_window("main")
+                .and_then(|w| w.is_focused().ok())
+                .unwrap_or(false);
+            // A focused window shows the in-app banner; otherwise Murmur is usually
+            // behind the call app and only a card on top of everything is seen.
+            if !focused && let Err(e) = show_popup(app) {
+                tracing::warn!("meeting popup failed: {e}");
             }
         }
+        MeetingEvent::Ended => clear(app),
     }
 }
 
-/// The in-app banner covers a focused window; otherwise Murmur is usually in the
-/// background during a call and only a notification is seen.
-fn notify(app: &AppHandle, meeting: MeetingApp) {
-    let focused = app
-        .get_webview_window("main")
-        .and_then(|w| w.is_focused().ok())
-        .unwrap_or(false);
-    if focused {
-        return;
+const POPUP: &str = "meeting";
+const POPUP_SIZE: (f64, f64) = (400.0, 84.0);
+
+/// A small card in the top-right corner, above other apps and on every Space, that
+/// doesn't take focus from the call.
+fn show_popup(app: &AppHandle) -> tauri::Result<()> {
+    if app.get_webview_window(POPUP).is_some() {
+        return Ok(());
     }
-    let body = if meeting.browser {
-        "In a call? Open Murmur to record it."
-    } else {
-        "Open Murmur to record this meeting."
-    };
-    let result = app
-        .notification()
-        .builder()
-        .title(format!("{} is using your microphone", meeting.name))
-        .body(body)
-        .show();
-    if let Err(e) = result {
-        tracing::warn!("meeting notification failed: {e}");
+    let (width, height) = POPUP_SIZE;
+    let mut builder = WebviewWindowBuilder::new(app, POPUP, WebviewUrl::default())
+        .title("Murmur")
+        .inner_size(width, height)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .accept_first_mouse(true);
+    if let Some(monitor) = app.primary_monitor()? {
+        let scale = monitor.scale_factor();
+        let area = monitor.work_area();
+        let origin = area.position.to_logical::<f64>(scale);
+        let size = area.size.to_logical::<f64>(scale);
+        builder = builder.position(origin.x + size.width - width - 16.0, origin.y + 12.0);
+    }
+    builder.build()?;
+    Ok(())
+}
+
+/// Forgets the detected meeting and takes the offer down everywhere.
+fn clear(app: &AppHandle) {
+    if app.state::<MeetingState>().0.lock().unwrap().take().is_some() {
+        let _ = app.emit("meeting", None::<DetectedMeeting>);
+    }
+    close_popup(app);
+}
+
+pub fn close_popup(app: &AppHandle) {
+    if let Some(popup) = app.get_webview_window(POPUP) {
+        let _ = popup.close();
     }
 }
 
@@ -115,8 +138,23 @@ pub fn detected_meeting(state: State<MeetingState>) -> Option<DetectedMeeting> {
     state.0.lock().unwrap().clone()
 }
 
-/// Hides the offer until the next call (recorded or dismissed).
+/// Hides the offer until the next call.
 #[tauri::command]
-pub fn dismiss_meeting(state: State<MeetingState>) {
-    state.0.lock().unwrap().take();
+pub fn dismiss_meeting(app: AppHandle) {
+    clear(&app);
+}
+
+/// From the popup: brings Murmur forward with the New session dialog for this meeting.
+#[tauri::command]
+pub fn record_meeting(app: AppHandle) {
+    let meeting = app.state::<MeetingState>().0.lock().unwrap().clone();
+    clear(&app);
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    if let Some(meeting) = meeting {
+        let _ = app.emit_to("main", "record-meeting", meeting);
+    }
 }

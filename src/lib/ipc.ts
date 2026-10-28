@@ -199,9 +199,14 @@ export const ipc = {
 
   detectedMeeting: () => invoke<DetectedMeeting | null>("detected_meeting"),
   dismissMeeting: () => invoke<void>("dismiss_meeting"),
+  /** From the floating card: brings the main window forward to record. */
+  recordMeeting: () => invoke<void>("record_meeting"),
   /** Resolves to an unlisten function. */
   onMeeting: (handler: (meeting: DetectedMeeting | null) => void) =>
     listen<DetectedMeeting | null>("meeting", (event) => handler(event.payload)),
+  /** The floating card's Record was clicked; the main window opens the dialog. */
+  onRecordMeeting: (handler: (meeting: DetectedMeeting) => void) =>
+    listen<DetectedMeeting>("record-meeting", (event) => handler(event.payload)),
 };
 
 function streamChannel(onEvent: (event: StreamEvent) => void) {
