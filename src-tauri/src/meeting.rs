@@ -88,7 +88,7 @@ fn handle(app: &AppHandle, event: MeetingEvent) {
 }
 
 const POPUP: &str = "meeting";
-const POPUP_SIZE: (f64, f64) = (400.0, 84.0);
+const POPUP_SIZE: (f64, f64) = (340.0, 56.0);
 
 /// A small card in the top-right corner, above other apps and on every Space, that
 /// doesn't take focus from the call.
