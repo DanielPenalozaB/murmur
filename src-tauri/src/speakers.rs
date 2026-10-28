@@ -34,7 +34,7 @@ pub fn identify(
             .join("models")
             .join("speakers");
         let diarizer = Diarizer::load(&models)
-            .map_err(|e| format!("{e}. Run scripts/download-models.sh to download the speaker models."))?;
+            .map_err(|e| format!("{e}. Download the models from the Murmur setup screen."))?;
         *slot = Some(diarizer);
     }
     let diarizer = slot.as_ref().expect("loaded above");

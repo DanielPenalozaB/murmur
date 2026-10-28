@@ -108,7 +108,7 @@ fn load_model(
         .join("models")
         .join(file);
     let model = WhisperModel::load(&path)
-        .map_err(|e| format!("{e}. Run scripts/download-models.sh to download it."))?;
+        .map_err(|e| format!("{e}. Download the models from the Murmur setup screen."))?;
     *slot = Some(model.clone());
     Ok(model)
 }

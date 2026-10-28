@@ -1,6 +1,6 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|live-silent|empty|start|library|session|retranscribing|search|speakers|settings`.
+// `?preview&view=live|live-muted|live-silent|setup|empty|start|library|session|retranscribing|search|speakers|settings`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
@@ -206,6 +206,17 @@ export function install() {
             snippet: "if the cache fails we need a [rollback] path that doesn't touch the database",
           },
         ];
+      case "missing_models":
+        return view === "setup"
+          ? [
+              { label: "Whisper large-v3 turbo (transcription)", bytes: 574_041_195 },
+              { label: "Whisper base (drafts and languages)", bytes: 147_951_465 },
+              { label: "TitaNet (voices)", bytes: 40_257_283 },
+              { label: "pyannote segmentation (who spoke when)", bytes: 6_958_444 },
+            ]
+          : [];
+      case "download_models":
+        return new Promise(() => {});
       case "session_languages":
         return ["en", "es"];
       case "retranscribe_session":
@@ -244,6 +255,7 @@ export function install() {
 
   const nav = {
     live: { kind: "live" },
+    setup: { kind: "live" },
     library: { kind: "folder", folder: null },
     session: { kind: "session", id: record.id },
     retranscribing: { kind: "session", id: record.id },
