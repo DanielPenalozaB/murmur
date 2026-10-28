@@ -81,7 +81,7 @@ function Preview({ id }: { id: string }) {
   const items = actionItems(s.notes);
 
   return (
-    <aside className="card flex flex-col overflow-hidden">
+    <aside className="card flex min-h-0 flex-col overflow-hidden">
       <div className="flex items-center justify-between bg-sidebar px-5 py-3">
         <span className="flex items-center gap-2 text-[12px] font-medium text-ink-soft">
           <span className="size-2 rounded-full bg-local" /> Local document preview
@@ -95,7 +95,7 @@ function Preview({ id }: { id: string }) {
           <ExternalLink className="size-4" />
         </button>
       </div>
-      <div className="flex flex-col gap-5 overflow-y-auto p-5">
+      <div className="flex min-h-0 flex-col gap-5 overflow-y-auto p-5">
         <div>
           <span className="chip bg-local-soft text-on-local-soft">{s.folder || "Vault root"}</span>
           <h2 className="mt-2 font-serif text-[28px] leading-8">{s.title}</h2>
@@ -227,7 +227,11 @@ export function FolderView({ folder }: { folder: string | null }) {
                   Double-click a note to open it <ArrowRight className="size-3" />
                 </p>
               </div>
-              <div className="sticky top-0">{current && <Preview id={current} />}</div>
+              {/* Fits the scroll area (window minus the 3.5rem top bar and 2rem bottom padding), so a
+                  long preview scrolls inside the panel instead of with the list. */}
+              <div className="sticky top-0 flex max-h-[calc(100vh-5.5rem)] flex-col">
+                {current && <Preview id={current} />}
+              </div>
             </div>
           )}
         </div>
