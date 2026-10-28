@@ -27,5 +27,7 @@ murmur-audio.workspace = true
 murmur-stt.workspace = true
 murmur-llm.workspace = true
 murmur-store.workspace = true
+futures-util = "0.3.34"
+reqwest = { version = "0.13.5", default-features = false, features = ["stream", "rustls"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 security-framework = "3.7.0"

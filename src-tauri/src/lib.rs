@@ -1,5 +1,6 @@
 mod assistant;
 mod library;
+mod models;
 mod recording;
 mod retranscribe;
 mod settings;
@@ -34,6 +35,7 @@ pub fn run() {
         .manage(recording::RecordingState::default())
         .manage(speakers::SpeakersState::default())
         .manage(retranscribe::RetranscribeState::default())
+        .manage(models::DownloadState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
@@ -68,6 +70,8 @@ pub fn run() {
             speakers::list_voices,
             speakers::forget_voice,
             speakers::sessions_with_speaker,
+            models::missing_models,
+            models::download_models,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

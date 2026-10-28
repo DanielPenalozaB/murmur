@@ -12,6 +12,11 @@ export type Provider =
   | { kind: "gemini"; model: string };
 
 export type ModelInfo = { id: string; label: string };
+/** A speech or speaker model still to download. */
+export type MissingModel = { label: string; bytes: number };
+export type DownloadEvent =
+  | { kind: "progress"; label: string; done: number; total: number }
+  | { kind: "finished" };
 export type ApiKeys = { anthropic: boolean; gemini: boolean };
 
 export type StreamEvent =
@@ -172,6 +177,12 @@ export const ipc = {
     const channel = new IpcChannel<RetranscribeEvent>();
     channel.onmessage = onEvent;
     return invoke<void>("retranscribe_session", { id, languages, onEvent: channel });
+  },
+  missingModels: () => invoke<MissingModel[]>("missing_models"),
+  downloadModels: (onEvent: (event: DownloadEvent) => void) => {
+    const channel = new IpcChannel<DownloadEvent>();
+    channel.onmessage = onEvent;
+    return invoke<void>("download_models", { onEvent: channel });
   },
   sessionLanguages: (id: string) => invoke<string[] | null>("session_languages", { id }),
 
