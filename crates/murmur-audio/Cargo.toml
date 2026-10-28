@@ -3,7 +3,7 @@ name = "murmur-audio"
 description = "Mic + system audio capture and VAD chunking"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 rust-version.workspace = true
 
 [dependencies]

@@ -1,0 +1,29 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Start a recording in Teams with AirPods\n2. ..."
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: macOS version, Mac model, audio devices, meeting app
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Terminal output from `pnpm tauri dev`. Remove anything private (names, meeting content) first.
+      render: text

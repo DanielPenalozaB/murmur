@@ -4,9 +4,18 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
+    name: Build and test
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,8 +28,14 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
-      - run: pnpm check
-      - run: ./scripts/build-audiocap.sh
+      - name: Frontend checks (TypeScript, Biome)
+        run: pnpm check
+      - name: Frontend tests
+        run: pnpm vitest run
+      - name: Frontend build
+        run: pnpm build
+      - name: Capture helper (Swift)
+        run: ./scripts/build-audiocap.sh
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace

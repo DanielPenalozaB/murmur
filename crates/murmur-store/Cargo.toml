@@ -3,7 +3,7 @@ name = "murmur-store"
 description = "SQLite index and Markdown/TXT export"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 rust-version.workspace = true
 
 [dependencies]

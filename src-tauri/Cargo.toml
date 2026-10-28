@@ -3,7 +3,7 @@ name = "murmur"
 description = "Local-first meeting transcription and notes"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 rust-version.workspace = true
 
 [lib]
