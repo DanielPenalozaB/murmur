@@ -137,6 +137,18 @@ const cards: SessionCard[] = [
     actions_done: 0,
     speakers: ["David Kim", "Ana Torres", "Marcus Chen"],
   },
+  {
+    ...record,
+    id: "d",
+    title: "All-hands Q&A",
+    started_at: iso(12, 16, 0),
+    duration_ms: 64 * 60_000,
+    excerpt: "Roadmap review and open questions from every team.",
+    actions_open: 4,
+    actions_done: 0,
+    // A long list must truncate, not widen the column.
+    speakers: Array.from({ length: 50 }, (_, i) => `Speaker ${i + 1}`),
+  },
 ];
 
 const settings: Settings = {
