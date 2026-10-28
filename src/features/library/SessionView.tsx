@@ -69,6 +69,8 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
   const generate = useNotes((s) => s.generate);
   const [draft, setDraft] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Browser dialogs (window.confirm) don't show in the app's web view, so confirm inline.
+  const [confirmReplace, setConfirmReplace] = useState(false);
   const writing = job?.status === "writing";
   const hasTranscript = session.segments.length > 0;
 
@@ -84,7 +86,7 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
     }
   };
   const regenerate = () => {
-    if (session.notes.trim() && !window.confirm("Replace the current notes with new ones?")) return;
+    setConfirmReplace(false);
     generate(session.id, userNotesOf(session.notes));
   };
 
@@ -151,15 +153,34 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
           >
             <PencilLine className="size-3.5" /> Edit
           </button>
-          {hasTranscript && (
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] hover:bg-canvas/15"
-              onClick={regenerate}
-            >
-              <RefreshCw className="size-3.5" /> Regenerate
-            </button>
-          )}
+          {hasTranscript &&
+            (confirmReplace ? (
+              <>
+                <span className="px-2 text-[13px]">Replace the notes?</span>
+                <button
+                  type="button"
+                  className="rounded-full bg-canvas/20 px-3 py-1 text-[13px] hover:bg-canvas/30"
+                  onClick={regenerate}
+                >
+                  Replace
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full px-3 py-1 text-[13px] hover:bg-canvas/15"
+                  onClick={() => setConfirmReplace(false)}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="flex items-center gap-1.5 rounded-full px-3 py-1 text-[13px] hover:bg-canvas/15"
+                onClick={() => setConfirmReplace(true)}
+              >
+                <RefreshCw className="size-3.5" /> Regenerate
+              </button>
+            ))}
           <button
             type="button"
             className="flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[13px] text-on-accent"
