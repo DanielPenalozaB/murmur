@@ -2512,7 +2512,7 @@ dependencies = [
 
 [[package]]
 name = "murmur"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "futures-util",
@@ -2534,7 +2534,7 @@ dependencies = [
 
 [[package]]
 name = "murmur-audio"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "earshot",
  "hound",
@@ -2547,7 +2547,7 @@ dependencies = [
 
 [[package]]
 name = "murmur-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -2555,7 +2555,7 @@ dependencies = [
 
 [[package]]
 name = "murmur-llm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "futures-util",
  "murmur-core",
@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "murmur-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "murmur-core",
  "rusqlite",
@@ -2580,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "murmur-stt"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "hound",
  "murmur-audio",
