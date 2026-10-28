@@ -6,6 +6,7 @@ import {
   FolderOpen,
   KeyRound,
   Languages,
+  Radio,
   ShieldCheck,
   SpellCheck,
   Type,
@@ -432,6 +433,17 @@ export function SettingsView() {
               value={draft.vocabulary}
               onChange={(vocabulary) => set({ vocabulary })}
             />
+            <Row
+              icon={<Radio className="size-4" />}
+              title="Detect meetings"
+              detail="When Teams, Slack, Zoom or a browser call starts using the microphone, Murmur offers to record. Nothing is recorded until you say so."
+            >
+              <Toggle
+                checked={draft.detect_meetings}
+                onChange={(detect_meetings) => set({ detect_meetings })}
+                label="Offer to record detected meetings"
+              />
+            </Row>
             <Row
               icon={<UsersRound className="size-4" />}
               title="Speaker identification"

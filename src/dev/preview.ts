@@ -1,6 +1,6 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|live-silent|setup|empty|start|library|session|retranscribing|search|speakers|settings`.
+// `?preview&view=live|live-muted|live-silent|setup|empty|start|meeting|library|session|retranscribing|search|speakers|settings`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
@@ -147,6 +147,7 @@ const settings: Settings = {
   llm: { kind: "ollama", base_url: "http://127.0.0.1:11434", model: "qwen3:14b", num_ctx: 32768 },
   auto_notes: true,
   vocabulary: ["TKT", "Mariana", "Tomas", "Express Checkout"],
+  detect_meetings: true,
 };
 
 export function install() {
@@ -217,6 +218,8 @@ export function install() {
           : [];
       case "download_models":
         return new Promise(() => {});
+      case "detected_meeting":
+        return view === "meeting" ? { app: "Microsoft Teams", browser: false } : null;
       case "session_languages":
         return ["en", "es"];
       case "retranscribe_session":
@@ -256,6 +259,7 @@ export function install() {
   const nav = {
     live: { kind: "live" },
     setup: { kind: "live" },
+    meeting: { kind: "folder", folder: null },
     library: { kind: "folder", folder: null },
     session: { kind: "session", id: record.id },
     retranscribing: { kind: "session", id: record.id },

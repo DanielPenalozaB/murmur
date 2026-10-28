@@ -1,5 +1,6 @@
 mod assistant;
 mod library;
+mod meeting;
 mod models;
 mod recording;
 mod retranscribe;
@@ -32,15 +33,18 @@ fn app_info(settings: State<settings::SettingsState>) -> AppInfo {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .manage(recording::RecordingState::default())
         .manage(speakers::SpeakersState::default())
         .manage(retranscribe::RetranscribeState::default())
         .manage(models::DownloadState::default())
+        .manage(meeting::MeetingState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
             app.manage(library::LibraryState(Mutex::new(library::open_index(handle)?)));
             recording::preload_model(handle);
+            meeting::watch(handle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -72,6 +76,8 @@ pub fn run() {
             speakers::sessions_with_speaker,
             models::missing_models,
             models::download_models,
+            meeting::detected_meeting,
+            meeting::dismiss_meeting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,4 +1,5 @@
 import { Channel as IpcChannel, invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 // Hand-written for now; generate with tauri-specta once the command surface settles.
 export type Channel = "mic" | "system";
@@ -34,7 +35,12 @@ export type Settings = {
   auto_notes: boolean;
   /** Names and terms hinted to Whisper. Remembered speakers are added automatically. */
   vocabulary: string[];
+  /** Offer to record when a calling app starts using the microphone. */
+  detect_meetings: boolean;
 };
+
+/** A calling app, or a browser (probably a web call), that has been using the mic. */
+export type DetectedMeeting = { app: string; browser: boolean };
 
 export type RecorderStatus = {
   paused: boolean;
@@ -190,6 +196,12 @@ export const ipc = {
   setMicMuted: (muted: boolean) => invoke<void>("set_mic_muted", { muted }),
   stopRecording: () => invoke<Recording>("stop_recording"),
   recordingStatus: () => invoke<RecorderStatus | null>("recording_status"),
+
+  detectedMeeting: () => invoke<DetectedMeeting | null>("detected_meeting"),
+  dismissMeeting: () => invoke<void>("dismiss_meeting"),
+  /** Resolves to an unlisten function. */
+  onMeeting: (handler: (meeting: DetectedMeeting | null) => void) =>
+    listen<DetectedMeeting | null>("meeting", (event) => handler(event.payload)),
 };
 
 function streamChannel(onEvent: (event: StreamEvent) => void) {
