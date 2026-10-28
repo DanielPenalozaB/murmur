@@ -6,6 +6,7 @@ import { Sidebar } from "./features/library/Sidebar";
 import { LiveView } from "./features/recorder/LiveView";
 import { MeetingBanner } from "./features/recorder/MeetingBanner";
 import { useRecorder } from "./features/recorder/useRecorder";
+import { useTrayActions } from "./features/recorder/useTrayActions";
 import { SettingsView } from "./features/settings/SettingsView";
 import { ModelSetup } from "./features/setup/ModelSetup";
 import { SpeakersView } from "./features/speakers/SpeakersView";
@@ -15,6 +16,7 @@ import { useNav } from "./lib/nav";
 export default function App() {
   const view = useNav((s) => s.view);
   const { status } = useRecorder();
+  useTrayActions();
   const missing = useQuery({ queryKey: ["missing-models"], queryFn: ipc.missingModels });
   // Recording needs the models; the library, notes and settings work without them.
   const setup = (missing.data?.length ?? 0) > 0 && view.kind === "live";

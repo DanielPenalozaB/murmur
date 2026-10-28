@@ -6,6 +6,7 @@ mod recording;
 mod retranscribe;
 mod settings;
 mod speakers;
+mod tray;
 
 use std::sync::Mutex;
 
@@ -44,12 +45,23 @@ pub fn run() {
             app.manage(library::LibraryState(Mutex::new(library::open_index(handle)?)));
             recording::preload_model(handle);
             meeting::watch(handle);
+            tray::install(handle)?;
             Ok(())
         })
-        // Back in Murmur, the in-app banner takes over from the floating card.
         .on_window_event(|window, event| {
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
-                meeting::close_popup(window.app_handle());
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                // Back in Murmur, the in-app banner takes over from the floating card.
+                tauri::WindowEvent::Focused(true) => meeting::close_popup(window.app_handle()),
+                // Murmur keeps running in the menu bar; the webview stays alive so
+                // recordings started from there still reach the transcript and notes.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -84,7 +96,14 @@ pub fn run() {
             meeting::detected_meeting,
             meeting::dismiss_meeting,
             meeting::record_meeting,
+            meeting::stop_meeting,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Clicking the Dock icon brings back a closed window.
+            if let tauri::RunEvent::Reopen { .. } = event {
+                tray::show_main(app);
+            }
+        });
 }

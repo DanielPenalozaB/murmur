@@ -7,18 +7,25 @@ use murmur_audio::{MeetingDetector, MeetingEvent, MicWatcher};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::recording;
 use crate::settings::SettingsState;
+use crate::{recording, tray};
 
-/// A calling app (or browser) that has been using the mic, offered for recording.
+/// A calling app (or browser) that has been using the mic.
 #[derive(Debug, Clone, Serialize)]
 pub struct DetectedMeeting {
     app: String,
     browser: bool,
+    /// It let go of the mic while Murmur is still recording.
+    ended: bool,
 }
 
 #[derive(Default)]
-pub struct MeetingState(Mutex<Option<DetectedMeeting>>);
+pub struct MeetingState {
+    /// What's offered now: recording a call, or stopping once it ended.
+    offer: Mutex<Option<DetectedMeeting>>,
+    /// The call in progress, recorded or not.
+    call: Mutex<Option<DetectedMeeting>>,
+}
 
 /// Watches which apps use the mic for as long as the app runs.
 pub fn watch(app: &AppHandle) {
@@ -62,28 +69,43 @@ fn handle(app: &AppHandle, event: MeetingEvent) {
     let state = app.state::<MeetingState>();
     match event {
         MeetingEvent::Started(meeting) => {
-            let enabled = app.state::<SettingsState>().0.lock().unwrap().detect_meetings;
-            // Recording already, Murmur's own capture is on the mic too.
-            if !enabled || recording::is_recording(app) {
+            if !app.state::<SettingsState>().0.lock().unwrap().detect_meetings {
                 return;
             }
-            let detected = DetectedMeeting {
+            let call = DetectedMeeting {
                 app: meeting.name.into(),
                 browser: meeting.browser,
+                ended: false,
             };
-            *state.0.lock().unwrap() = Some(detected.clone());
-            let _ = app.emit("meeting", Some(detected));
-            let focused = app
-                .get_webview_window("main")
-                .and_then(|w| w.is_focused().ok())
-                .unwrap_or(false);
-            // A focused window shows the in-app banner; otherwise Murmur is usually
-            // behind the call app and only a card on top of everything is seen.
-            if !focused && let Err(e) = show_popup(app) {
-                tracing::warn!("meeting popup failed: {e}");
+            *state.call.lock().unwrap() = Some(call.clone());
+            // Recording already, Murmur's own capture is on the mic too.
+            if !recording::is_recording(app) {
+                offer(app, call);
             }
         }
-        MeetingEvent::Ended => clear(app),
+        MeetingEvent::Ended => {
+            let call = state.call.lock().unwrap().take();
+            clear(app);
+            if let Some(call) = call
+                && recording::is_recording(app)
+            {
+                offer(app, DetectedMeeting { ended: true, ..call });
+            }
+        }
+    }
+}
+
+fn offer(app: &AppHandle, meeting: DetectedMeeting) {
+    *app.state::<MeetingState>().offer.lock().unwrap() = Some(meeting.clone());
+    let _ = app.emit("meeting", Some(meeting));
+    let focused = app
+        .get_webview_window("main")
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false);
+    // A focused window shows the in-app banner; otherwise Murmur is usually behind
+    // the call app and only a card on top of everything is seen.
+    if !focused && let Err(e) = show_popup(app) {
+        tracing::warn!("meeting popup failed: {e}");
     }
 }
 
@@ -119,9 +141,9 @@ fn show_popup(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Forgets the detected meeting and takes the offer down everywhere.
-fn clear(app: &AppHandle) {
-    if app.state::<MeetingState>().0.lock().unwrap().take().is_some() {
+/// Takes the offer down everywhere. Starting or stopping a recording answers it.
+pub fn clear(app: &AppHandle) {
+    if app.state::<MeetingState>().offer.lock().unwrap().take().is_some() {
         let _ = app.emit("meeting", None::<DetectedMeeting>);
     }
     close_popup(app);
@@ -135,7 +157,7 @@ pub fn close_popup(app: &AppHandle) {
 
 #[tauri::command]
 pub fn detected_meeting(state: State<MeetingState>) -> Option<DetectedMeeting> {
-    state.0.lock().unwrap().clone()
+    state.offer.lock().unwrap().clone()
 }
 
 /// Hides the offer until the next call.
@@ -147,14 +169,17 @@ pub fn dismiss_meeting(app: AppHandle) {
 /// From the popup: brings Murmur forward with the New session dialog for this meeting.
 #[tauri::command]
 pub fn record_meeting(app: AppHandle) {
-    let meeting = app.state::<MeetingState>().0.lock().unwrap().clone();
+    let meeting = app.state::<MeetingState>().offer.lock().unwrap().clone();
     clear(&app);
-    if let Some(window) = app.get_webview_window("main") {
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
+    tray::show_main(&app);
     if let Some(meeting) = meeting {
         let _ = app.emit_to("main", "record-meeting", meeting);
     }
+}
+
+/// From the popup, once the call ended: stops the recording as the window's Stop would.
+#[tauri::command]
+pub fn stop_meeting(app: AppHandle) {
+    clear(&app);
+    let _ = app.emit_to("main", "tray", "stop");
 }

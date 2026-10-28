@@ -107,3 +107,9 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
      a small always-on-top card (transparent window, hence `macOSPrivateApi`) whose Record
      brings the window forward with the New session dialog. Once per call; never while
      recording.
+   - When a detected call ends (mic released for 5 s) while Murmur is recording, the same
+     card or banner offers to stop.
+   - Menu-bar recorder: a template icon drawn in code with the elapsed time beside it; Start
+     (last folder, format and languages, titled after a detected call), Pause, mic off/on and
+     Stop. Menu actions are emitted to the main webview, which runs them like its own buttons,
+     so closing the window only hides it and Murmur keeps running in the menu bar.

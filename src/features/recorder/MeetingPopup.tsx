@@ -1,4 +1,4 @@
-import { Circle, X } from "lucide-react";
+import { Circle, Square, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { LogoMark } from "../../components/ui";
 import { type DetectedMeeting, ipc } from "../../lib/ipc";
@@ -25,16 +25,30 @@ export function MeetingPopup() {
       <LogoMark size="sm" />
       <div className="min-w-0 flex-1 leading-tight">
         <p className="truncate text-[13px] font-semibold">
-          {meeting.browser ? `Call in ${meeting.app}?` : `${meeting.app} meeting`}
+          {meeting.ended
+            ? `${meeting.app} call ended?`
+            : meeting.browser
+              ? `Call in ${meeting.app}?`
+              : `${meeting.app} meeting`}
         </p>
-        <p className="text-[11px] text-ink-soft">Using your microphone</p>
+        <p className="text-[11px] text-ink-soft">
+          {meeting.ended ? "Murmur is still recording" : "Using your microphone"}
+        </p>
       </div>
       <button
         type="button"
         className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-[12px] font-semibold text-on-accent hover:opacity-90"
-        onClick={() => void ipc.recordMeeting()}
+        onClick={() => void (meeting.ended ? ipc.stopMeeting() : ipc.recordMeeting())}
       >
-        <Circle className="size-2.5 fill-current" /> Record
+        {meeting.ended ? (
+          <>
+            <Square className="size-2.5 fill-current" /> Stop
+          </>
+        ) : (
+          <>
+            <Circle className="size-2.5 fill-current" /> Record
+          </>
+        )}
       </button>
       <button
         type="button"

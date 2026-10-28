@@ -158,7 +158,7 @@ struct Meters {
     digital_silence_ms: AtomicU64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct RecorderStatus {
     pub paused: bool,
     /// Recorded time, excluding pauses.

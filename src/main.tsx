@@ -22,7 +22,7 @@ async function start() {
   if (import.meta.env.DEV && params.has("preview")) {
     (await import("./dev/preview")).install();
   }
-  const popup = isPopup() || (import.meta.env.DEV && params.get("view") === "popup");
+  const popup = isPopup() || (import.meta.env.DEV && params.get("view")?.startsWith("popup"));
   document.documentElement.classList.toggle("popup", popup);
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>

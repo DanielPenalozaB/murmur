@@ -14,6 +14,10 @@ use std::time::Duration;
 /// briefly for device checks and sound previews.
 pub const SETTLE: Duration = Duration::from_secs(3);
 
+/// How long the mic must stay released before a call counts as over. Switching
+/// headsets or audio devices mid-call lets go of it briefly.
+pub const LINGER: Duration = Duration::from_secs(5);
+
 /// Calling apps and browsers (for Meet and other web calls), by bundle ID. Helper
 /// processes (`com.google.Chrome.helper`) match their app's ID.
 const APPS: &[(&str, &str, bool)] = &[
@@ -58,7 +62,7 @@ pub fn meeting_app(bundle_id: &str) -> Option<MeetingApp> {
 pub enum MeetingEvent {
     /// An app has held the mic for [`SETTLE`]; offer to record.
     Started(MeetingApp),
-    /// No announced app uses the mic any more.
+    /// No announced app has used the mic for [`LINGER`].
     Ended,
 }
 
@@ -67,8 +71,10 @@ pub enum MeetingEvent {
 pub struct MeetingDetector {
     /// Apps on the mic and since when (time since the detector started).
     since: HashMap<MeetingApp, Duration>,
-    /// Apps already announced during their current use of the mic.
+    /// Apps announced for the current call.
     announced: HashSet<MeetingApp>,
+    /// When the last announced app let go of the mic.
+    released: Option<Duration>,
 }
 
 impl MeetingDetector {
@@ -80,16 +86,21 @@ impl MeetingDetector {
         now: Duration,
     ) -> Vec<MeetingEvent> {
         let active: HashSet<MeetingApp> = bundle_ids.into_iter().filter_map(meeting_app).collect();
-        let had_announced = !self.announced.is_empty();
         self.since.retain(|app, _| active.contains(app));
-        self.announced.retain(|app| active.contains(app));
         for app in &active {
             self.since.entry(*app).or_insert(now);
         }
 
         let mut events = Vec::new();
-        if had_announced && self.announced.is_empty() {
-            events.push(MeetingEvent::Ended);
+        if self.announced.is_disjoint(&active) && !self.announced.is_empty() {
+            let released = *self.released.get_or_insert(now);
+            if now.saturating_sub(released) >= LINGER {
+                self.announced.clear();
+                self.released = None;
+                events.push(MeetingEvent::Ended);
+            }
+        } else {
+            self.released = None;
         }
         // Dedicated calling apps first, so a browser is only named when it's the only one.
         let mut settled: Vec<MeetingApp> = self
@@ -200,7 +211,8 @@ mod tests {
         let mut d = MeetingDetector::default();
         d.update(["us.zoom.xos"], secs(0));
         d.update(["us.zoom.xos"], secs(5));
-        assert_eq!(d.update([], secs(30)), vec![MeetingEvent::Ended]);
+        assert!(d.update([], secs(30)).is_empty());
+        assert_eq!(d.update([], secs(35)), vec![MeetingEvent::Ended]);
         d.update(["us.zoom.xos"], secs(40));
         assert_eq!(
             d.update(["us.zoom.xos"], secs(43)),
@@ -209,6 +221,19 @@ mod tests {
                 browser: false
             })]
         );
+    }
+
+    #[test]
+    fn a_brief_release_neither_ends_nor_repeats_the_call() {
+        let mut d = MeetingDetector::default();
+        d.update(["com.microsoft.teams2"], secs(0));
+        d.update(["com.microsoft.teams2"], secs(3));
+        // A headset switch: the mic is let go for two seconds.
+        assert!(d.update([], secs(10)).is_empty());
+        assert!(d.update(["com.microsoft.teams2"], secs(12)).is_empty());
+        assert!(d.update(["com.microsoft.teams2"], secs(20)).is_empty());
+        d.update([], secs(30));
+        assert_eq!(d.update([], secs(35)), vec![MeetingEvent::Ended]);
     }
 
     #[test]
@@ -226,6 +251,7 @@ mod tests {
         );
         // The call goes on in the browser after Teams lets go: still the same meeting.
         assert!(d.update(["com.google.Chrome.helper"], secs(20)).is_empty());
-        assert_eq!(d.update([], secs(30)), vec![MeetingEvent::Ended]);
+        d.update([], secs(30));
+        assert_eq!(d.update([], secs(35)), vec![MeetingEvent::Ended]);
     }
 }
