@@ -97,6 +97,7 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 5. **Speakers:** post-meeting diarization, rename speakers, voiceprints. ✅
    - After Stop, the system-audio track is diarized; speakers are numbered by first appearance and voices matching a remembered one (cosine ≥ 0.6) are named automatically.
    - Renaming rewrites the transcript section of the file, replaces the old name in the notes, and remembers the voice (averaged voiceprint per name).
+   - Speakers from before a voice was remembered show it as a suggestion ("Ana? ✓ ✕") when opening the session, at the same 0.6 bar and never for a name already in the meeting. ✓ renames them; ✕ is stored per speaker so that name isn't offered again.
    - Live drafts: the base model transcribes the utterance in progress every 1.5 s; the final turbo line replaces it.
    - UI rebuilt from the Google Stitch screens (live session, post-meeting notes, library, search, speaker directory, preferences, new session sheet).
 6. **Polish:** meeting auto-detect, menu-bar recorder, signing + notarization, auto-update.

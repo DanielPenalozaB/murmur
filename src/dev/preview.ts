@@ -92,6 +92,7 @@ check rollback owner`;
 const speakers = [
   { id: "speaker_1", name: "Ana Torres", named: true },
   { id: "speaker_2", name: "Speaker 2", named: false },
+  { id: "speaker_3", name: "Speaker 3", named: false, suggestion: "Marcus Chen" },
 ];
 
 const record = {

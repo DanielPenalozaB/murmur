@@ -401,11 +401,41 @@ pub fn match_voices(
     known: &[(String, Vec<f32>)],
     threshold: f32,
 ) -> Vec<Option<String>> {
+    match_voices_where(voiceprints, known, threshold, |_, _| true)
+}
+
+/// Names to suggest for a session's unnamed speakers (`unnamed`: voiceprint and the
+/// name the user already turned down for it). Speakers transcribed before a voice was
+/// remembered match it as well as new ones would, so the bar is the same as for naming
+/// them automatically; below it, different people in real meetings scored up to 0.6.
+/// Names already in the session (`taken`) aren't suggested again.
+pub fn suggest_names(
+    unnamed: &[(Vec<f32>, Option<String>)],
+    known: &[(String, Vec<f32>)],
+    taken: &[String],
+) -> Vec<Option<String>> {
+    let known: Vec<_> = known
+        .iter()
+        .filter(|(name, _)| !taken.contains(name))
+        .cloned()
+        .collect();
+    let voiceprints: Vec<_> = unnamed.iter().map(|(v, _)| v.clone()).collect();
+    match_voices_where(&voiceprints, &known, VOICE_MATCH_THRESHOLD, |s, name| {
+        unnamed[s].1.as_deref() != Some(name)
+    })
+}
+
+fn match_voices_where(
+    voiceprints: &[Vec<f32>],
+    known: &[(String, Vec<f32>)],
+    threshold: f32,
+    allowed: impl Fn(usize, &str) -> bool,
+) -> Vec<Option<String>> {
     let mut pairs: Vec<(f32, usize, usize)> = Vec::new();
     for (s, v) in voiceprints.iter().enumerate() {
-        for (k, (_, known_v)) in known.iter().enumerate() {
+        for (k, (name, known_v)) in known.iter().enumerate() {
             let score = similarity(v, known_v);
-            if score >= threshold {
+            if score >= threshold && allowed(s, name) {
                 pairs.push((score, s, k));
             }
         }
@@ -559,5 +589,26 @@ mod tests {
         let names = match_voices(&speakers, &known, 0.8);
         // Speaker 2 is the closer match for Ana, so speaker 1 doesn't get the name too.
         assert_eq!(names, [None, Some("Ana".to_string()), None]);
+    }
+
+    #[test]
+    fn suggests_names_not_taken_or_declined() {
+        let ana = normalize(vec![1.0, 0.1, 0.0]);
+        let bo = normalize(vec![0.0, 1.0, 0.1]);
+        let cy = normalize(vec![0.1, 0.0, 1.0]);
+        let known = [
+            ("Ana".to_string(), ana.clone()),
+            ("Bo".to_string(), bo.clone()),
+            ("Cy".to_string(), cy.clone()),
+        ];
+        let unnamed = [
+            (ana.clone(), None),
+            (bo.clone(), Some("Bo".to_string())),
+            (cy.clone(), None),
+            (normalize(vec![0.5, -1.0, 0.0]), None),
+        ];
+        let names = suggest_names(&unnamed, &known, &["Cy".to_string()]);
+        // Bo was declined for that speaker and Cy is already in the meeting.
+        assert_eq!(names, [Some("Ana".to_string()), None, None, None]);
     }
 }
