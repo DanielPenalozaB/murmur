@@ -60,7 +60,9 @@ Requires a Mac with Apple silicon and macOS 14.4 or later.
 4. For notes and questions, install [Ollama](https://ollama.com) and pull a model
    (for example `ollama pull qwen3:14b`), or add a Claude or Gemini API key in Settings.
 
-Each update is a new build, so macOS may ask for microphone and system-audio access again.
+After that, Murmur updates itself: when a new version is out, click **Update and restart**
+in the sidebar (or check from Settings → Updates). Versions before 0.3.0 can't update
+themselves; install 0.3.0 by hand once.
 
 ## Develop
 
@@ -74,9 +76,8 @@ pnpm tauri dev
 Requires Rust (rustup), Xcode Command Line Tools and cmake. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-To release, set the same version in `src-tauri/tauri.conf.json`, `Cargo.toml` and
-`package.json`, merge it, then push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`).
-The Release workflow builds the app and publishes the `.dmg` and `.zip`.
+To release, see [docs/RELEASING.md](docs/RELEASING.md): set the version, push a matching
+tag, and the Release workflow publishes the `.dmg`, the `.zip` and the in-app update.
 
 ## Contributing
 

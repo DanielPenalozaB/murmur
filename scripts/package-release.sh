@@ -17,5 +17,11 @@ hdiutil create -volname Murmur -srcfolder "$out/stage" -ov -format UDZO \
   "$out/Murmur_${version}_aarch64.dmg" >/dev/null
 (cd "$out/stage" && ditto -c -k --keepParent Murmur.app "../Murmur_${version}_aarch64.app.zip")
 rm -rf "$out/stage"
+# The signed update for the in-app updater, built when the updater key is set.
+update="$target/release/bundle/macos/Murmur.app.tar.gz"
+if [ -f "$update.sig" ]; then
+  cp "$update" "$out/Murmur_${version}_aarch64.app.tar.gz"
+  cp "$update.sig" "$out/Murmur_${version}_aarch64.app.tar.gz.sig"
+fi
 (cd "$out" && shasum -a 256 Murmur_* > SHA256SUMS.txt)
 ls -lh "$out"

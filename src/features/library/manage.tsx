@@ -30,7 +30,7 @@ function useRefresh() {
     );
 }
 
-function Dialog({
+export function Dialog({
   icon: Icon,
   eyebrow,
   title,
