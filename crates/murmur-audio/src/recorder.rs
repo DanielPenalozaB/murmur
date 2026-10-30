@@ -70,6 +70,7 @@ impl Supervisor {
             thread::spawn(move || {
                 // Restarting doesn't help a headset that is muted; once per run is enough.
                 let mut restarted_for_silence = false;
+                let mut silence = SilenceLog::default();
                 loop {
                     let mut last_frame = Instant::now();
                     loop {
@@ -88,6 +89,9 @@ impl Supervisor {
                         let silent_ms = meters.digital_silence_ms.load(Ordering::Relaxed);
                         if silent_ms == 0 {
                             restarted_for_silence = false;
+                        }
+                        if channel == Channel::Mic {
+                            silence.update(silent_ms, || helper.lock().unwrap().source());
                         }
                         // System audio is exactly zero whenever nothing plays.
                         let silent = channel == Channel::Mic
@@ -141,6 +145,43 @@ impl Supervisor {
         self.request_stop();
         self.helper.lock().unwrap().stop();
         let _ = self.thread.join();
+    }
+}
+
+/// Logs stretches of digital silence from the microphone, so a recording that missed
+/// the user's voice can be explained afterwards.
+#[derive(Default)]
+struct SilenceLog {
+    since: Option<Instant>,
+}
+
+impl SilenceLog {
+    fn update(&mut self, silent_ms: u64, source: impl FnOnce() -> Option<String>) {
+        if silent_ms >= DIGITAL_SILENCE_WARN_MS && self.since.is_none() {
+            self.since = Some(Instant::now() - Duration::from_millis(silent_ms));
+            let source = source().unwrap_or_else(|| "from an unknown device".into());
+            tracing::warn!(
+                "the microphone is sending digital silence (muted on the device or by the call app?); capturing {source}"
+            );
+        } else if silent_ms == 0
+            && let Some(since) = self.since.take()
+        {
+            tracing::warn!(
+                "the microphone sent digital silence for {} s, then sound or a mute in Murmur",
+                since.elapsed().as_secs()
+            );
+        }
+    }
+}
+
+impl Drop for SilenceLog {
+    fn drop(&mut self) {
+        if let Some(since) = self.since {
+            tracing::warn!(
+                "the recording ended after {} s of digital silence from the microphone",
+                since.elapsed().as_secs()
+            );
+        }
     }
 }
 
@@ -500,6 +541,25 @@ mod tests {
         assert_eq!(meter(&[0.0; 160]), 0.0);
         assert!((meter(&[1.0; 160]) - 1.0).abs() < 1e-6);
         assert!((meter(&[0.001; 160]) - 0.0).abs() < 1e-3); // −60 dBFS
+    }
+
+    #[test]
+    fn silence_log_asks_for_the_device_once_per_stretch() {
+        let mut log = SilenceLog::default();
+        let mut asked = 0;
+        let mut source = || {
+            asked += 1;
+            Some("microphone at 16000 Hz from Headset".to_string())
+        };
+        log.update(1_000, &mut source);
+        assert!(log.since.is_none(), "a short gap isn't worth logging");
+        log.update(DIGITAL_SILENCE_WARN_MS, &mut source);
+        log.update(DIGITAL_SILENCE_WARN_MS + 1_000, &mut source);
+        assert!(log.since.is_some());
+        log.update(0, &mut source);
+        assert!(log.since.is_none());
+        log.update(DIGITAL_SILENCE_WARN_MS, &mut source);
+        assert_eq!(asked, 2);
     }
 
     struct Harness {

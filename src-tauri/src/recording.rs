@@ -246,8 +246,10 @@ pub async fn start_recording(
                 finals: chunks_tx,
                 drafts: Some(drafts_tx),
             };
-            let recorder =
-                Recorder::start(&helper_path()?, &dir, Some(senders)).map_err(|e| e.to_string())?;
+            let recorder = Recorder::start(&helper_path()?, &dir, Some(senders)).map_err(|e| {
+                tracing::error!("starting the recording failed: {e}");
+                e.to_string()
+            })?;
             let (duration_tx, duration_rx) = mpsc::channel();
             state.live.lock().unwrap().clear();
             let finalized = Arc::new(Finalized::default());
@@ -394,6 +396,7 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
                     }
                 }
                 Err(e) => {
+                    tracing::error!(channel = ?chunk.channel, start = chunk.start_ms, "transcription failed: {e}");
                     let _ = w.events.send(TranscriptEvent::Error {
                         message: e.to_string(),
                     });
@@ -428,6 +431,7 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
         }
         let saved = save_session(&app, &w.session, &segments, &speakers);
         if let Err(message) = &saved {
+            tracing::error!("saving the session failed: {message}");
             let _ = w.events.send(TranscriptEvent::Error {
                 message: message.clone(),
             });
@@ -547,7 +551,10 @@ pub async fn stop_recording(app: AppHandle) -> Result<Recording, String> {
             languages,
             duration_tx,
         } = active.ok_or("not recording")?;
-        let recording = recorder.stop().map_err(|e| e.to_string())?;
+        let recording = recorder.stop().map_err(|e| {
+            tracing::error!("stopping the recording failed: {e}");
+            e.to_string()
+        })?;
         // Lets a re-transcription undo the volume boost and use the same languages.
         if let Err(e) = write_audio_info(&recording, &languages) {
             tracing::warn!("write audio.json: {e}");

@@ -64,6 +64,7 @@ async fn run(app: &AppHandle, prompt: Prompt, events: &Channel<StreamEvent>) -> 
     match result {
         Ok(text) => Some(text),
         Err(e) => {
+            tracing::warn!("{} failed: {e}", provider.label());
             let _ = events.send(StreamEvent::Error {
                 message: e.to_string(),
             });

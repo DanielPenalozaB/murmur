@@ -47,7 +47,12 @@ impl HelperProcess {
         let stderr_log = stderr.clone();
         thread::spawn(move || {
             for line in BufReader::new(stderr_pipe).lines().map_while(Result::ok) {
-                tracing::info!(?channel, "{line}");
+                // Restarts, failures and permission waits are what explain a bad recording.
+                if line.starts_with("audiocap: capturing") {
+                    tracing::info!(?channel, "{line}");
+                } else {
+                    tracing::warn!(?channel, "{line}");
+                }
                 let mut log = stderr_log.lock().unwrap();
                 log.push_str(&line);
                 log.push('\n');
@@ -102,6 +107,16 @@ impl HelperProcess {
         tracing::warn!(channel = ?self.channel, "helper did not exit, killing it");
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+
+    /// What the helper said it's capturing from, e.g. "microphone at 16000 Hz from
+    /// MacBook Pro Microphone".
+    pub fn source(&self) -> Option<String> {
+        let log = self.stderr.lock().unwrap();
+        log.lines()
+            .rev()
+            .find_map(|l| l.strip_prefix("audiocap: capturing "))
+            .map(str::to_string)
     }
 
     fn failure(&self, status: ExitStatus) -> AudioError {
