@@ -69,7 +69,14 @@ fn handle(app: &AppHandle, event: MeetingEvent) {
     let state = app.state::<MeetingState>();
     match event {
         MeetingEvent::Started(meeting) => {
-            if !app.state::<SettingsState>().0.lock().unwrap().detect_meetings {
+            // An ignored app's call isn't offered for, nor its end while recording.
+            if !app
+                .state::<SettingsState>()
+                .0
+                .lock()
+                .unwrap()
+                .offers_for(meeting.name)
+            {
                 return;
             }
             let call = DetectedMeeting {
@@ -110,7 +117,11 @@ fn offer(app: &AppHandle, meeting: DetectedMeeting) {
 }
 
 const POPUP: &str = "meeting";
-const POPUP_SIZE: (f64, f64) = (340.0, 56.0);
+const POPUP_SIZE: (f64, f64) = (372.0, 56.0);
+/// Collapsed, the card is just the logo: still there, out of the way.
+const POPUP_COLLAPSED: (f64, f64) = (56.0, 56.0);
+/// Gap to the screen's top-right corner.
+const POPUP_MARGIN: (f64, f64) = (16.0, 12.0);
 
 /// A small card in the top-right corner, above other apps and on every Space, that
 /// doesn't take focus from the call.
@@ -130,14 +141,41 @@ fn show_popup(app: &AppHandle) -> tauri::Result<()> {
         .skip_taskbar(true)
         .focused(false)
         .accept_first_mouse(true);
-    if let Some(monitor) = app.primary_monitor()? {
-        let scale = monitor.scale_factor();
-        let area = monitor.work_area();
-        let origin = area.position.to_logical::<f64>(scale);
-        let size = area.size.to_logical::<f64>(scale);
-        builder = builder.position(origin.x + size.width - width - 16.0, origin.y + 12.0);
+    if let Some((x, y)) = popup_position(app, width)? {
+        builder = builder.position(x, y);
     }
     builder.build()?;
+    Ok(())
+}
+
+/// Where a card `width` wide sits, its right edge in the top-right corner.
+fn popup_position(app: &AppHandle, width: f64) -> tauri::Result<Option<(f64, f64)>> {
+    let Some(monitor) = app.primary_monitor()? else {
+        return Ok(None);
+    };
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    let origin = area.position.to_logical::<f64>(scale);
+    let size = area.size.to_logical::<f64>(scale);
+    let (right, top) = POPUP_MARGIN;
+    Ok(Some((origin.x + size.width - width - right, origin.y + top)))
+}
+
+/// Shrinks the card to the logo, keeping it in its corner, or brings it back.
+#[tauri::command]
+pub fn collapse_meeting_popup(app: AppHandle, collapsed: bool) -> Result<(), String> {
+    let Some(popup) = app.get_webview_window(POPUP) else {
+        return Ok(());
+    };
+    let (width, height) = if collapsed { POPUP_COLLAPSED } else { POPUP_SIZE };
+    popup
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+    if let Some((x, y)) = popup_position(&app, width).map_err(|e| e.to_string())? {
+        popup
+            .set_position(tauri::LogicalPosition::new(x, y))
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 
@@ -164,6 +202,23 @@ pub fn detected_meeting(state: State<MeetingState>) -> Option<DetectedMeeting> {
 #[tauri::command]
 pub fn dismiss_meeting(app: AppHandle) {
     clear(&app);
+}
+
+/// "Don't ask for Slack": no more offers for that app's calls. Settings can undo it.
+#[tauri::command]
+pub fn ignore_meeting_app(app: AppHandle, name: String) -> Result<(), String> {
+    {
+        let state = app.state::<SettingsState>();
+        let mut settings = state.0.lock().unwrap();
+        if !settings.ignored_meeting_apps.contains(&name) {
+            settings.ignored_meeting_apps.push(name);
+            crate::settings::save(&app, &settings)?;
+        }
+    }
+    let state = app.state::<MeetingState>();
+    state.call.lock().unwrap().take();
+    clear(&app);
+    Ok(())
 }
 
 /// From the popup: brings Murmur forward with the New session dialog for this meeting.

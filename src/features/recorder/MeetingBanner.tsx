@@ -46,12 +46,27 @@ export function MeetingBanner({ recording }: { recording: boolean }) {
       className="fixed top-16 right-8 z-10 flex max-w-[460px] items-center gap-3 rounded-xl bg-accent-soft px-4 py-3 text-on-accent-soft shadow-xl"
     >
       <Radio className="size-4 shrink-0" />
-      <p className="min-w-0 flex-1 text-[13px]">
-        <span className="font-semibold">{meeting.app}</span>{" "}
-        {meeting.ended
-          ? "stopped using your microphone. Has the call ended?"
-          : `is using your microphone. ${meeting.browser ? "In a call?" : "Record this meeting?"}`}
-      </p>
+      <div className="min-w-0 flex-1 text-[13px]">
+        <p>
+          <span className="font-semibold">{meeting.app}</span>{" "}
+          {meeting.ended
+            ? "stopped using your microphone. Has the call ended?"
+            : `is using your microphone. ${meeting.browser ? "In a call?" : "Record this meeting?"}`}
+        </p>
+        {!meeting.ended && (
+          <button
+            type="button"
+            className="text-[12px] underline opacity-70 hover:opacity-100"
+            title="Settings can undo this"
+            onClick={() => {
+              setMeeting(null);
+              void ipc.ignoreMeetingApp(meeting.app);
+            }}
+          >
+            Don't ask for {meeting.app}
+          </button>
+        )}
+      </div>
       {meeting.ended ? (
         <button
           type="button"
