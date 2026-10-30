@@ -61,6 +61,7 @@ pub fn run() {
             manage::move_folder,
             manage::delete_folder,
             manage::storage_usage,
+            manage::sync_vault,
             recording::start_recording,
             recording::set_recording_paused,
             recording::set_mic_muted,

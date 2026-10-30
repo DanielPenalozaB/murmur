@@ -1,6 +1,7 @@
 //! Renaming, moving and deleting sessions and folders. The vault files move first and
 //! the index follows, so a failure never leaves the index pointing at a missing file.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use murmur_core::{ExportFormat, Session};
@@ -191,6 +192,87 @@ fn has_files(dir: &Path) -> Result<bool, StoreError> {
     Ok(false)
 }
 
+/// Points the index at session files moved or renamed outside Murmur (in Finder,
+/// Obsidian…). Markdown files are recognized by the session id in their frontmatter,
+/// plain text by their file name. Returns how many sessions were found elsewhere.
+pub fn sync_vault(index: &Index, vault: &Path) -> Result<usize, StoreError> {
+    let sessions = index.list_sessions(None)?;
+    let (present, missing): (Vec<_>, Vec<_>) = sessions
+        .into_iter()
+        .partition(|r| Path::new(&r.file_path).exists());
+    if missing.is_empty() || !vault.is_dir() {
+        return Ok(0);
+    }
+    let claimed: HashSet<PathBuf> = present.iter().map(|r| PathBuf::from(&r.file_path)).collect();
+    let mut files = Vec::new();
+    collect_session_files(vault, &mut files)?;
+    files.retain(|f| !claimed.contains(f));
+
+    let mut found = 0;
+    for record in missing {
+        let id = &record.session.id;
+        let by_id = files
+            .iter()
+            .find(|f| frontmatter_session(f).as_deref() == Some(id.as_str()));
+        let name = Path::new(&record.file_path).file_name();
+        let mut by_name = files.iter().filter(|f| f.file_name() == name);
+        let unique_name = match (by_name.next(), by_name.next()) {
+            (Some(f), None) => Some(f),
+            _ => None,
+        };
+        let Some(path) = by_id.or(unique_name).cloned() else {
+            continue;
+        };
+        let Some(folder) = folder_of(vault, &path) else {
+            continue;
+        };
+        index.relocate_session(id, &record.session.title, &folder, &path.to_string_lossy())?;
+        files.retain(|f| *f != path);
+        found += 1;
+    }
+    Ok(found)
+}
+
+/// `.md` and `.txt` files in the vault, hidden folders skipped.
+fn collect_session_files(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), StoreError> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            collect_session_files(&path, out)?;
+        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("md" | "txt")) {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// The `session:` id in a Markdown file's frontmatter.
+fn frontmatter_session(path: &Path) -> Option<String> {
+    if path.extension()? != "md" {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let front = text.strip_prefix("---\n")?;
+    let front = &front[..front.find("\n---")?];
+    front
+        .lines()
+        .find_map(|line| line.strip_prefix("session: "))
+        .map(|id| id.trim().trim_matches('"').to_string())
+}
+
+/// The vault folder a file sits in, `/`-separated; `None` outside the vault.
+fn folder_of(vault: &Path, file: &Path) -> Option<String> {
+    let dir = file.parent()?.strip_prefix(vault).ok()?;
+    let parts: Option<Vec<&str>> = dir.components().map(|c| c.as_os_str().to_str()).collect();
+    let folder = parts?.join("/");
+    validate_folder(&folder).ok()?;
+    Some(folder)
+}
+
 /// Removes a session from the vault and the index. A file already gone is fine.
 pub fn delete_session(index: &Index, id: &str) -> Result<(), StoreError> {
     let (record, _) = index
@@ -368,6 +450,42 @@ mod tests {
         delete_folder(&index, vault.path(), "Old").unwrap();
         assert!(!vault.path().join("Old").exists());
         assert!(delete_folder(&index, vault.path(), "").is_err());
+    }
+
+    #[test]
+    fn finds_files_moved_outside_murmur() {
+        let vault = tempfile::tempdir().unwrap();
+        let mut index = Index::open_in_memory().unwrap();
+        add(
+            &mut index,
+            vault.path(),
+            &session("a", "Standup", "Work", ExportFormat::Markdown),
+        );
+        add(
+            &mut index,
+            vault.path(),
+            &session("b", "Notes", "Work", ExportFormat::Txt),
+        );
+        add(
+            &mut index,
+            vault.path(),
+            &session("c", "Gone", "Work", ExportFormat::Markdown),
+        );
+        assert_eq!(sync_vault(&index, vault.path()).unwrap(), 0);
+
+        // The folder renamed in Finder, the Markdown file renamed too, the third deleted.
+        let v = vault.path();
+        std::fs::rename(v.join("Work"), v.join("Team")).unwrap();
+        std::fs::rename(v.join("Team/2026-10-12 Standup.md"), v.join("Team/Daily.md")).unwrap();
+        std::fs::remove_file(v.join("Team/2026-10-12 Gone.md")).unwrap();
+
+        assert_eq!(sync_vault(&index, v).unwrap(), 2);
+        let (a, _) = index.get_session("a").unwrap().unwrap();
+        assert_eq!(a.session.folder, "Team");
+        assert_eq!(Path::new(&a.file_path), v.join("Team/Daily.md"));
+        assert_eq!(record(&index, "b").0.folder, "Team");
+        assert_eq!(index.get_session("c").unwrap().unwrap().0.session.folder, "Work");
+        assert_eq!(sync_vault(&index, v).unwrap(), 0);
     }
 
     #[test]

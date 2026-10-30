@@ -152,6 +152,7 @@ export const ipc = {
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
   deleteSessionAudio: (id: string) => invoke<void>("delete_session_audio", { id }),
   storageUsage: () => invoke<StorageUsage>("storage_usage"),
+  syncVault: () => invoke<number>("sync_vault"),
   listSessions: (folder: string | null) => invoke<SessionCard[]>("list_sessions", { folder }),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
   search: (query: string) => invoke<SearchHit[]>("search", { query }),

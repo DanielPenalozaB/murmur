@@ -3,6 +3,7 @@ import { FolderView } from "./features/library/FolderView";
 import { SearchView } from "./features/library/SearchView";
 import { SessionView } from "./features/library/SessionView";
 import { Sidebar } from "./features/library/Sidebar";
+import { useVaultSync } from "./features/library/useVaultSync";
 import { LiveView } from "./features/recorder/LiveView";
 import { useRecorder } from "./features/recorder/useRecorder";
 import { SettingsView } from "./features/settings/SettingsView";
@@ -14,6 +15,7 @@ import { useNav } from "./lib/nav";
 export default function App() {
   const view = useNav((s) => s.view);
   const { status } = useRecorder();
+  useVaultSync();
   const missing = useQuery({ queryKey: ["missing-models"], queryFn: ipc.missingModels });
   // Recording needs the models; the library, notes and settings work without them.
   const setup = (missing.data?.length ?? 0) > 0 && view.kind === "live";

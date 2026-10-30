@@ -12,7 +12,7 @@ pub use export::{
     replace_transcript, write_notes, write_session_file, write_transcript,
 };
 pub use index::{Index, SearchHit, SessionCard, SessionRecord, SessionSpeaker, SpeakerInfo, VoiceEntry};
-pub use manage::{delete_folder, delete_session, move_folder, relocate_session, replace_header};
+pub use manage::{delete_folder, delete_session, move_folder, relocate_session, replace_header, sync_vault};
 pub use notes::{count_actions, excerpt};
 pub use vault::{FolderNode, create_folder, list_folders, validate_folder};
 

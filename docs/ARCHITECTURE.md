@@ -101,4 +101,5 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
    - UI rebuilt from the Google Stitch screens (live session, post-meeting notes, library, search, speaker directory, preferences, new session sheet).
 6. **Polish:** meeting auto-detect, menu-bar recorder, signing + notarization, auto-update.
    - Library management: rename, move and delete sessions (the session page's ⋯ menu) and folders (the folder page). The vault file moves first, with its header updated, and the index follows; a file is never overwritten. Folders are deleted only when they hold no sessions and none of the user's own files.
+   - Files moved or renamed in Finder are found again at launch and whenever the window comes to the front: Markdown by the `session:` id in its frontmatter, plain text by file name.
    - Deleting a session's audio keeps the transcript and notes; such a session can't be re-transcribed. Settings shows how much space recordings take.

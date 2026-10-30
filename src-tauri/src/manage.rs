@@ -98,6 +98,17 @@ pub fn delete_folder(app: AppHandle, folder: String) -> Result<(), String> {
     murmur_store::delete_folder(&index, &vault(&app), &folder).map_err(|e| e.to_string())
 }
 
+/// Catches up with sessions moved or renamed in Finder; returns how many were found.
+#[tauri::command]
+pub fn sync_vault(app: AppHandle) -> Result<usize, String> {
+    if retranscribe::is_running(&app) {
+        return Ok(0);
+    }
+    let library = app.state::<LibraryState>();
+    let index = library.0.lock().unwrap();
+    murmur_store::sync_vault(&index, &vault(&app)).map_err(|e| e.to_string())
+}
+
 /// Bytes of a session's recordings; 0 once they're deleted.
 pub fn audio_bytes(app: &AppHandle, id: &str) -> u64 {
     session_dir(app, id).map_or(0, |dir| recordings_size(&dir))
