@@ -9,6 +9,7 @@ import { useNotes } from "../assistant/store";
 import { formatTimestamp } from "../transcript/group";
 import { useTranscript } from "../transcript/store";
 import { type Seek, TranscriptTurns } from "../transcript/TranscriptTurns";
+import { PermissionNotice } from "./PermissionNotice";
 import { StartDialog } from "./StartDialog";
 import { useRecorder } from "./useRecorder";
 
@@ -206,6 +207,8 @@ export function LiveView() {
           </div>
         </div>
       )}
+
+      <PermissionNotice />
 
       {(error || silent.length > 0 || status?.mic_silent) && (
         <div className="mx-8 mb-3 rounded-lg bg-accent-soft px-4 py-2.5 text-[13px] text-on-accent-soft">

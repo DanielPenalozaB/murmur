@@ -114,6 +114,7 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
      (last folder, format and languages, titled after a detected call), Pause, mic off/on and
      Stop. Menu actions are emitted to the main webview, which runs them like its own buttons,
      so closing the window only hides it and Murmur keeps running in the menu bar.
+   - Permissions: `audiocap --permissions` reports microphone (AVCaptureDevice) and system-audio access. System audio has no public status API, so TCC's `TCCAccessPreflight` is looked up at runtime and reports "unknown" if it's missing. Live names a denied permission and opens its System Settings pane; it's checked again whenever the window comes to the front. "Not asked yet" isn't flagged, since macOS asks when recording starts.
    - Library management: rename, move and delete sessions (the session page's ⋯ menu) and folders (the folder page). The vault file moves first, with its header updated, and the index follows; a file is never overwritten. Folders are deleted only when they hold no sessions and none of the user's own files.
    - Files moved or renamed in Finder are found again at launch and whenever the window comes to the front: Markdown by the `session:` id in its frontmatter, plain text by file name.
    - Deleting a session's audio keeps the transcript and notes; such a session can't be re-transcribed. Settings shows how much space recordings take.
