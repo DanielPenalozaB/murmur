@@ -11,7 +11,7 @@ import {
 import { useState } from "react";
 import { AvatarStack, PageHeader, TopBar } from "../../components/ui";
 import { formatDate, formatDuration, formatRelative, ipc, type SessionCard } from "../../lib/ipc";
-import { useNav } from "../../lib/nav";
+import { folderCrumbs, useNav } from "../../lib/nav";
 import { Markdown } from "../assistant/Markdown";
 import { actionItems, parseSections } from "../assistant/notes";
 import { FolderActions } from "./manage";
@@ -167,8 +167,8 @@ export function FolderView({ folder }: { folder: string | null }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <TopBar
         crumbs={[
-          "Vault",
-          ...(folder ? folder.split("/") : folder === "" ? ["Vault root"] : ["All notes"]),
+          ...folderCrumbs(folder),
+          ...(folder === "" ? ["Vault root"] : folder === null ? ["All notes"] : []),
         ]}
       />
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">

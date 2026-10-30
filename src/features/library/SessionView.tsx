@@ -13,7 +13,7 @@ import {
 import { useState } from "react";
 import { Avatar, TopBar } from "../../components/ui";
 import { formatDate, formatDuration, ipc, type SessionDetail } from "../../lib/ipc";
-import { useNav } from "../../lib/nav";
+import { folderCrumbs, useNav } from "../../lib/nav";
 import { AskPanel } from "../assistant/AskPanel";
 import { Markdown } from "../assistant/Markdown";
 import { NotesDocument } from "../assistant/NotesDocument";
@@ -223,7 +223,7 @@ export function SessionView({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", ...(s?.folder ? s.folder.split("/") : []), s?.title ?? ""]}>
+      <TopBar crumbs={[...folderCrumbs(s?.folder), s?.title ?? ""]}>
         {s && (
           <>
             <button

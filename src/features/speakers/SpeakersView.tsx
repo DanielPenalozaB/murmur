@@ -3,7 +3,7 @@ import { AudioLines, CalendarDays, ChevronDown, ShieldCheck, Trash2 } from "luci
 import { useState } from "react";
 import { Avatar, PageHeader, TopBar } from "../../components/ui";
 import { formatRelative, ipc, type VoiceEntry } from "../../lib/ipc";
-import { useNav } from "../../lib/nav";
+import { folderCrumbs, useNav } from "../../lib/nav";
 
 function VoiceCard({ voice }: { voice: VoiceEntry }) {
   const go = useNav((s) => s.go);
@@ -101,7 +101,7 @@ export function SpeakersView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", "Speakers"]} />
+      <TopBar crumbs={[...folderCrumbs(null), "Speakers"]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
         <div className="mx-auto flex max-w-[1180px] flex-col gap-8 pt-2">
           <PageHeader

@@ -1,5 +1,6 @@
 import { AudioLines } from "lucide-react";
 import type { ReactNode } from "react";
+import { type Crumb, useNav } from "../lib/nav";
 
 /** "Elena Rostova" → "ER", "Speaker 2" → "S2", "Me" → "ME". */
 export function initials(name: string) {
@@ -59,7 +60,8 @@ export function LogoMark({ size = "md" }: { size?: "sm" | "md" }) {
 }
 
 /** Window-top bar: logo, breadcrumb, and optional actions. Doubles as the drag area. */
-export function TopBar({ crumbs, children }: { crumbs: string[]; children?: ReactNode }) {
+export function TopBar({ crumbs, children }: { crumbs: Crumb[]; children?: ReactNode }) {
+  const go = useNav((s) => s.go);
   return (
     <header
       className="flex h-14 shrink-0 items-center gap-3 px-6 text-[13px]"
@@ -67,15 +69,27 @@ export function TopBar({ crumbs, children }: { crumbs: string[]; children?: Reac
     >
       <LogoMark size="sm" />
       <nav className="flex min-w-0 items-center gap-2 text-ink-soft" data-tauri-drag-region>
-        {crumbs.map((c, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: a crumb's position is its identity
-          <span key={`${i}-${c}`} className="flex min-w-0 items-center gap-2">
-            {i > 0 && <span className="text-outline">/</span>}
-            <span className={`truncate ${i === crumbs.length - 1 ? "font-medium text-ink" : ""}`}>
-              {c}
+        {crumbs.map((c, i) => {
+          const label = typeof c === "string" ? c : c.label;
+          const last = i === crumbs.length - 1;
+          return (
+            // biome-ignore lint/suspicious/noArrayIndexKey: a crumb's position is its identity
+            <span key={`${i}-${label}`} className="flex min-w-0 items-center gap-2">
+              {i > 0 && <span className="text-outline">/</span>}
+              {typeof c !== "string" && !last ? (
+                <button
+                  type="button"
+                  className="truncate rounded hover:text-ink hover:underline"
+                  onClick={() => go(c.to)}
+                >
+                  {label}
+                </button>
+              ) : (
+                <span className={`truncate ${last ? "font-medium text-ink" : ""}`}>{label}</span>
+              )}
             </span>
-          </span>
-        ))}
+          );
+        })}
       </nav>
       <div className="ml-auto flex items-center gap-2">{children}</div>
     </header>

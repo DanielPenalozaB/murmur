@@ -3,6 +3,7 @@ import { Download, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { PageHeader, TopBar } from "../../components/ui";
 import { ipc, type MissingModel } from "../../lib/ipc";
+import { folderCrumbs } from "../../lib/nav";
 import { formatBytes } from "./format";
 
 type Progress = { label: string; done: number; total: number };
@@ -33,7 +34,7 @@ export function ModelSetup({ missing }: { missing: MissingModel[] }) {
   const percent = progress ? Math.round((100 * progress.done) / progress.total) : 0;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", "Setup"]} />
+      <TopBar crumbs={[...folderCrumbs(null), "Setup"]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-8">
         <div className="mx-auto flex max-w-[640px] flex-col gap-8 pt-2 pb-16">
           <PageHeader

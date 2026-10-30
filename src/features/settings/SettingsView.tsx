@@ -15,6 +15,7 @@ import {
 import { type ReactNode, useEffect, useState } from "react";
 import { PageHeader, Toggle, TopBar } from "../../components/ui";
 import { formatBytes, ipc, type Provider, type Settings } from "../../lib/ipc";
+import { folderCrumbs } from "../../lib/nav";
 import { languageHint } from "../recorder/StartDialog";
 import { parseVocabulary } from "./vocabulary";
 
@@ -324,7 +325,7 @@ export function SettingsView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", "Settings"]} />
+      <TopBar crumbs={[...folderCrumbs(null), "Settings"]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-8">
         <div className="mx-auto flex max-w-[860px] flex-col gap-10 pt-2 pb-16">
           <PageHeader

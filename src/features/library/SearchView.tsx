@@ -3,7 +3,7 @@ import { Search } from "lucide-react";
 import { useState } from "react";
 import { Avatar, PageHeader, TopBar } from "../../components/ui";
 import { formatRelative, ipc } from "../../lib/ipc";
-import { useNav } from "../../lib/nav";
+import { folderCrumbs, useNav } from "../../lib/nav";
 import { formatTimestamp } from "../transcript/group";
 
 /** Renders FTS snippets, where matches come wrapped in [brackets]. */
@@ -69,7 +69,7 @@ export function SearchView({ query }: { query: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", "Search"]} />
+      <TopBar crumbs={[...folderCrumbs(null), "Search"]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
         <div className="mx-auto flex max-w-[1180px] flex-col gap-6 pt-2">
           <PageHeader
