@@ -69,6 +69,7 @@ pub fn run() {
             speakers::rename_speaker,
             speakers::list_voices,
             speakers::forget_voice,
+            speakers::decline_suggestion,
             speakers::sessions_with_speaker,
             models::missing_models,
             models::download_models,

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AudioLines,
+  Check,
   ExternalLink,
   FileText,
   FolderOpen,
@@ -9,6 +10,7 @@ import {
   RefreshCw,
   RotateCcw,
   UsersRound,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 import { Avatar, TopBar } from "../../components/ui";
@@ -34,7 +36,17 @@ export function userNotesOf(notes: string) {
   return at === -1 ? "" : notes.slice(at + "## My notes".length).trim();
 }
 
-function Attendees({ session, onRename }: { session: SessionDetail; onRename: Rename }) {
+type Decline = (speakerId: string, name: string) => Promise<void>;
+
+function Attendees({
+  session,
+  onRename,
+  onDecline,
+}: {
+  session: SessionDetail;
+  onRename: Rename;
+  onDecline: Decline;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-xl bg-sidebar px-4 py-3">
       <span className="eyebrow mr-1 flex items-center gap-1.5">
@@ -47,6 +59,13 @@ function Attendees({ session, onRename }: { session: SessionDetail; onRename: Re
         <span key={s.id} className="chip gap-1.5 bg-surface py-1">
           <Avatar name={s.name} size="xs" />
           <SpeakerChip label={s.name} channel="system" speakerId={s.id} onRename={onRename} plain />
+          {s.suggestion && (
+            <Suggestion
+              name={s.suggestion}
+              onAccept={() => onRename(s.id, s.suggestion as string)}
+              onDecline={() => onDecline(s.id, s.suggestion as string)}
+            />
+          )}
         </span>
       ))}
       {session.speakers.length === 0 && session.segments.some((s) => s.channel === "system") && (
@@ -60,6 +79,52 @@ function Attendees({ session, onRename }: { session: SessionDetail; onRename: Re
         </span>
       )}
     </div>
+  );
+}
+
+/** "Ana?" next to an unnamed speaker whose voice Murmur recognizes. */
+function Suggestion({
+  name,
+  onAccept,
+  onDecline,
+}: {
+  name: string;
+  onAccept: () => Promise<void>;
+  onDecline: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const run = (action: () => Promise<void>) => async () => {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="flex items-center gap-1 border-l border-line pl-1.5 text-ink-soft">
+      <span title={`Sounds like ${name}`}>{name}?</span>
+      <button
+        type="button"
+        className="rounded-full p-0.5 text-accent hover:bg-accent-soft disabled:opacity-50"
+        title={`Yes, it's ${name}`}
+        aria-label={`Yes, it's ${name}`}
+        disabled={busy}
+        onClick={run(onAccept)}
+      >
+        <Check className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        className="rounded-full p-0.5 hover:bg-muted disabled:opacity-50"
+        title={`Not ${name}`}
+        aria-label={`Not ${name}`}
+        disabled={busy}
+        onClick={run(onDecline)}
+      >
+        <X className="size-3.5" />
+      </button>
+    </span>
   );
 }
 
@@ -218,6 +283,10 @@ export function SessionView({ id }: { id: string }) {
       ),
     );
   };
+  const decline: Decline = async (speakerId, name) => {
+    await ipc.declineSuggestion(id, speakerId, name);
+    await queryClient.invalidateQueries({ queryKey: ["session", id] });
+  };
   const actions = s ? actionItems(s.notes) : [];
 
   return (
@@ -332,7 +401,7 @@ export function SessionView({ id }: { id: string }) {
                   </p>
                 )}
 
-                <Attendees session={s} onRename={rename} />
+                <Attendees session={s} onRename={rename} onDecline={decline} />
 
                 <div className="flex justify-center gap-2">
                   {(["notes", "transcript"] as const).map((t) => (

@@ -81,7 +81,13 @@ export type SessionRecord = {
   file_path: string;
 };
 
-export type SpeakerInfo = { id: string; name: string; named: boolean };
+export type SpeakerInfo = {
+  id: string;
+  name: string;
+  named: boolean;
+  /** A remembered voice this unnamed speaker sounds like. */
+  suggestion?: string;
+};
 
 export type SessionDetail = SessionRecord & {
   segments: Segment[];
@@ -165,6 +171,8 @@ export const ipc = {
 
   renameSpeaker: (sessionId: string, speakerId: string, name: string) =>
     invoke<void>("rename_speaker", { sessionId, speakerId, name }),
+  declineSuggestion: (sessionId: string, speakerId: string, name: string) =>
+    invoke<void>("decline_suggestion", { sessionId, speakerId, name }),
   listVoices: () => invoke<VoiceEntry[]>("list_voices"),
   forgetVoice: (name: string) => invoke<void>("forget_voice", { name }),
   sessionsWithSpeaker: (name: string) => invoke<SessionRecord[]>("sessions_with_speaker", { name }),

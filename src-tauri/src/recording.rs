@@ -439,6 +439,7 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
                     .clone()
                     .unwrap_or_else(|| murmur_core::SpeakerId(s.id.clone()).default_name()),
                 named: s.name.is_some(),
+                suggestion: None,
             })
             .collect();
         let _ = w.events.send(TranscriptEvent::Finished {
