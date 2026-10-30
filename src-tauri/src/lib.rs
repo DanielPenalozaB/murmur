@@ -1,5 +1,6 @@
 mod assistant;
 mod library;
+mod logging;
 mod manage;
 mod meeting;
 mod models;
@@ -44,6 +45,9 @@ pub fn run() {
         .manage(meeting::MeetingState::default())
         .setup(|app| {
             let handle = app.handle();
+            if let Ok(dir) = app.path().app_log_dir() {
+                logging::init(&dir);
+            }
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
             app.manage(library::LibraryState(Mutex::new(library::open_index(handle)?)));
             recording::preload_model(handle);

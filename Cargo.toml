@@ -21,6 +21,7 @@ serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "registry", "ansi"] }
 
 # The ML stays fast in `tauri dev`: whisper.cpp's CMake build follows this opt-level,
 # and earshot's network is pure Rust.

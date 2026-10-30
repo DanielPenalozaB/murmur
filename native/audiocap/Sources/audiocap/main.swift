@@ -360,7 +360,9 @@ final class MicCapture {
         lastBufferAt = .now()
         lastBuffer.unlock()
         do { try engine.start() } catch { log("start microphone: \(error)") }
-        log("capturing microphone at \(Int(format.sampleRate)) Hz")
+        // Named in the log, so a silent recording can be traced to its device.
+        let device = AVCaptureDevice.default(for: .audio)?.localizedName ?? "unknown device"
+        log("capturing microphone at \(Int(format.sampleRate)) Hz from \(device)")
         return true
     }
 

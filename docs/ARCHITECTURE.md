@@ -76,6 +76,15 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 | Database | `rusqlite` (bundled, FTS5) |
 | Logging | `tracing` |
 
+## Problem log
+
+Warnings, errors and panics are appended to `~/Library/Logs/dev.murmur.app/murmur.log`
+(rotated to `murmur.log.1` past 1 MB); dev builds also print info-level logs to the
+terminal. Worth logging there: anything that explains a bad recording afterwards, such as
+helper restarts, the microphone sending digital silence (with the device it came from), and
+failed transcription, re-transcription, saving or LLM calls. Nothing from the meeting
+itself (transcript text, audio) goes in the log.
+
 ## Key decisions
 
 - [ADR-001](adr/001-tauri-rust-core.md): Tauri + Rust core rather than Electron or SwiftUI
