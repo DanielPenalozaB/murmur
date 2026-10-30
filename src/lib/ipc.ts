@@ -166,6 +166,7 @@ export const ipc = {
   updateSettings: (settings: Settings) => invoke<void>("update_settings", { settings }),
 
   listFolders: () => invoke<Folders>("list_folders"),
+  pickVaultFolder: () => invoke<string | null>("pick_vault_folder"),
   createFolder: (path: string) => invoke<void>("create_folder", { path }),
   moveFolder: (from: string, to: string) => invoke<void>("move_folder", { from, to }),
   deleteFolder: (folder: string) => invoke<void>("delete_folder", { folder }),

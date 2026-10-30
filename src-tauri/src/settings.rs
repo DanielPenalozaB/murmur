@@ -5,6 +5,10 @@ use murmur_core::ExportFormat;
 use murmur_llm::Provider;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+
+use crate::library::LibraryState;
+use crate::{recording, retranscribe};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -75,6 +79,45 @@ pub fn get_settings(state: State<SettingsState>) -> Settings {
     state.0.lock().unwrap().clone()
 }
 
+/// Takes the sessions along to a new vault folder, so the library and the sidebar's
+/// notebooks keep agreeing.
+fn move_vault(app: &AppHandle, from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    // Both write into the vault when they finish.
+    if recording::is_recording(app) || retranscribe::is_running(app) {
+        return Err("change the vault folder once the recording or re-transcription finishes".into());
+    }
+    let library = app.state::<LibraryState>();
+    let index = library.0.lock().unwrap();
+    let moved = murmur_store::move_vault(&index, from, to).map_err(|e| e.to_string())?;
+    let found = murmur_store::sync_vault(&index, to).map_err(|e| e.to_string())?;
+    tracing::info!(
+        "vault moved to {}: {moved} sessions moved, {found} found there",
+        to.display()
+    );
+    Ok(())
+}
+
+/// Finder's folder picker, starting at the current vault. `None` when cancelled.
+#[tauri::command]
+pub async fn pick_vault_folder(app: AppHandle) -> Option<PathBuf> {
+    let current = app.state::<SettingsState>().0.lock().unwrap().vault_path.clone();
+    let start = if current.is_dir() {
+        current
+    } else {
+        dirs_home(&app)
+    };
+    app.dialog()
+        .file()
+        .set_title("Choose the vault folder")
+        .set_directory(start)
+        .blocking_pick_folder()
+        .and_then(|path| path.into_path().ok())
+}
+
+fn dirs_home(app: &AppHandle) -> PathBuf {
+    app.path().home_dir().unwrap_or_else(|_| PathBuf::from("/"))
+}
+
 #[tauri::command]
 pub fn update_settings(
     app: AppHandle,
@@ -85,6 +128,10 @@ pub fn update_settings(
         return Err("the vault folder must be an absolute path".into());
     }
     murmur_store::validate_folder(&settings.last_folder).map_err(|e| e.to_string())?;
+    let old_vault = state.0.lock().unwrap().vault_path.clone();
+    if settings.vault_path != old_vault {
+        move_vault(&app, &old_vault, &settings.vault_path)?;
+    }
     save(&app, &settings)?;
     *state.0.lock().unwrap() = settings;
     Ok(())

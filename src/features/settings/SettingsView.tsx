@@ -314,7 +314,7 @@ export function SettingsView() {
     try {
       await ipc.updateSettings(draft);
       await Promise.all(
-        [["settings"], ["app-info"], ["folders"]].map((queryKey) =>
+        [["settings"], ["app-info"], ["folders"], ["sessions"], ["session"]].map((queryKey) =>
           queryClient.invalidateQueries({ queryKey }),
         ),
       );
@@ -488,20 +488,32 @@ export function SettingsView() {
                 />
               </div>
             </div>
-            <label className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <span className="text-[14px] font-semibold">Vault folder</span>
-              <span className="flex items-center gap-2 rounded-lg bg-muted px-3">
-                <FolderOpen className="size-4 text-ink-soft" />
-                <input
-                  className="flex-1 bg-transparent py-2 text-sm outline-none"
-                  value={draft.vault_path}
-                  onChange={(e) => set({ vault_path: e.target.value })}
-                />
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-muted px-3 py-2">
+                  <FolderOpen className="size-4 shrink-0 text-ink-soft" />
+                  <span className="truncate text-sm" title={draft.vault_path}>
+                    {draft.vault_path}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className="btn-ghost shrink-0"
+                  onClick={async () => {
+                    const folder = await ipc.pickVaultFolder();
+                    if (folder) set({ vault_path: folder });
+                  }}
+                >
+                  Choose…
+                </button>
+              </div>
               <span className="text-[12px] text-ink-soft">
-                Plain files on disk, nothing in the cloud. Notebooks are folders inside it.
+                {draft.vault_path !== saved.vault_path
+                  ? "When you apply, Murmur moves its notes and notebooks to this folder. Other files in the old folder stay where they are."
+                  : "Plain files on disk, nothing in the cloud. Notebooks are folders inside it."}
               </span>
-            </label>
+            </div>
             {storage.data && (
               <div className="flex items-start gap-3 rounded-lg bg-muted px-3 py-2.5">
                 <AudioLines className="mt-0.5 size-4 shrink-0 text-ink-soft" />

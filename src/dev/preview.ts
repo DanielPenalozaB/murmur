@@ -194,6 +194,8 @@ export function install() {
         return view === "permissions"
           ? { mic: "granted", system: "denied" }
           : { mic: "granted", system: "granted" };
+      case "pick_vault_folder":
+        return "/Users/me/Obsidian/Murmur";
       case "storage_usage":
         return { audio_bytes: 2_810_000_000, sessions_with_audio: 23 };
       case "list_voices":

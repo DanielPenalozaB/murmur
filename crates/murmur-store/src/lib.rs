@@ -14,7 +14,9 @@ pub use export::{
 pub use index::{
     Index, SearchHit, SessionCard, SessionRecord, SessionSpeaker, SpeakerInfo, UnnamedSpeaker, VoiceEntry,
 };
-pub use manage::{delete_folder, delete_session, move_folder, relocate_session, replace_header, sync_vault};
+pub use manage::{
+    delete_folder, delete_session, move_folder, move_vault, relocate_session, replace_header, sync_vault,
+};
 pub use notes::{count_actions, excerpt};
 pub use vault::{FolderNode, create_folder, list_folders, validate_folder};
 
@@ -26,6 +28,8 @@ pub enum StoreError {
     FolderExists(String),
     #[error("{0} still has notes or other files in it")]
     FolderNotEmpty(String),
+    #[error("choose a vault folder that isn't inside the current one, or around it: {0}")]
+    InvalidVault(String),
     #[error("enter a title of up to 200 characters, on one line")]
     InvalidTitle,
     #[error(transparent)]
