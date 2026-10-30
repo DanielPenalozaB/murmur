@@ -1,11 +1,13 @@
 mod assistant;
 mod library;
 mod manage;
+mod meeting;
 mod models;
 mod recording;
 mod retranscribe;
 mod settings;
 mod speakers;
+mod tray;
 
 use std::sync::Mutex;
 
@@ -37,12 +39,31 @@ pub fn run() {
         .manage(speakers::SpeakersState::default())
         .manage(retranscribe::RetranscribeState::default())
         .manage(models::DownloadState::default())
+        .manage(meeting::MeetingState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
             app.manage(library::LibraryState(Mutex::new(library::open_index(handle)?)));
             recording::preload_model(handle);
+            meeting::watch(handle);
+            tray::install(handle)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                // Back in Murmur, the in-app banner takes over from the floating card.
+                tauri::WindowEvent::Focused(true) => meeting::close_popup(window.app_handle()),
+                // Murmur keeps running in the menu bar; the webview stays alive so
+                // recordings started from there still reach the transcript and notes.
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                _ => {}
+            }
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -78,10 +99,21 @@ pub fn run() {
             speakers::rename_speaker,
             speakers::list_voices,
             speakers::forget_voice,
+            speakers::decline_suggestion,
             speakers::sessions_with_speaker,
             models::missing_models,
             models::download_models,
+            meeting::detected_meeting,
+            meeting::dismiss_meeting,
+            meeting::record_meeting,
+            meeting::stop_meeting,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Clicking the Dock icon brings back a closed window.
+            if let tauri::RunEvent::Reopen { .. } = event {
+                tray::show_main(app);
+            }
+        });
 }

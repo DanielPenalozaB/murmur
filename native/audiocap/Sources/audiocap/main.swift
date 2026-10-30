@@ -3,6 +3,8 @@
 //
 //   audiocap --source system   Core Audio process tap of all system output (macOS 14.4+)
 //   audiocap --source mic      default input device via AVAudioEngine
+//   audiocap --watch-mic       prints the bundle IDs of processes using audio input,
+//                              space-separated, one line each time the set changes
 //
 // Diagnostics go to stderr so stdout stays a clean PCM stream. The process exits
 // when stdin closes (the parent stopped or died), on SIGINT/SIGTERM, or on a
@@ -378,25 +380,95 @@ final class MicCapture {
     }
 }
 
+// MARK: - Microphone users (meeting detection)
+
+/// Polls Core Audio's process objects for the ones running audio input. Reading them
+/// needs no microphone permission; a poll is cheap and catches processes that come and
+/// go without wiring a listener to each one.
+final class MicWatcher {
+    private var timer: DispatchSourceTimer?
+    private var last: String?
+
+    func start() {
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now(), repeating: 1)
+        timer.setEventHandler { [weak self] in self?.poll() }
+        timer.resume()
+        self.timer = timer
+    }
+
+    func stop() {
+        timer?.cancel()
+    }
+
+    private func poll() {
+        let line = Set(processes().filter(isRunningInput).compactMap(bundleID)).sorted()
+            .joined(separator: " ")
+        guard line != last else { return }
+        last = line
+        let data = (line + "\n").data(using: .utf8)!
+        // A closed pipe means Murmur is gone.
+        if data.withUnsafeBytes({ Darwin.write(STDOUT_FILENO, $0.baseAddress, $0.count) }) <= 0 { exit(0) }
+    }
+
+    private func address(_ selector: AudioObjectPropertySelector) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(
+            mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain)
+    }
+
+    private func processes() -> [AudioObjectID] {
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        var address = address(kAudioHardwarePropertyProcessObjectList)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return [] }
+        return Array(ids.prefix(Int(size) / MemoryLayout<AudioObjectID>.size))
+    }
+
+    private func isRunningInput(_ process: AudioObjectID) -> Bool {
+        var address = address(kAudioProcessPropertyIsRunningInput)
+        var running: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        return AudioObjectGetPropertyData(process, &address, 0, nil, &size, &running) == noErr && running != 0
+    }
+
+    private func bundleID(_ process: AudioObjectID) -> String? {
+        var address = address(kAudioProcessPropertyBundleID)
+        var value: Unmanaged<CFString>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(process, &address, 0, nil, &size, &value) == noErr,
+            let id = value?.takeRetainedValue() as String?, !id.isEmpty
+        else { return nil }
+        return id
+    }
+}
+
 // MARK: - Entry point
 
 let args = CommandLine.arguments
-guard let flag = args.firstIndex(of: "--source"), flag + 1 < args.count else {
-    fail("usage: audiocap --source mic|system", code: 64)
-}
-
 let stop: () -> Void
-switch args[flag + 1] {
-case "system":
-    let capture = SystemCapture()
-    capture.start()
-    stop = capture.stop
-case "mic":
-    let capture = MicCapture()
-    capture.start()
-    stop = capture.stop
-default:
-    fail("unknown source \(args[flag + 1])", code: 64)
+if args.contains("--watch-mic") {
+    let watcher = MicWatcher()
+    watcher.start()
+    stop = watcher.stop
+} else {
+    guard let flag = args.firstIndex(of: "--source"), flag + 1 < args.count else {
+        fail("usage: audiocap --source mic|system | --watch-mic", code: 64)
+    }
+    switch args[flag + 1] {
+    case "system":
+        let capture = SystemCapture()
+        capture.start()
+        stop = capture.stop
+    case "mic":
+        let capture = MicCapture()
+        capture.start()
+        stop = capture.stop
+    default:
+        fail("unknown source \(args[flag + 1])", code: 64)
+    }
 }
 
 func shutdown() -> Never {

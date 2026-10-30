@@ -59,6 +59,18 @@ pub struct SpeakerInfo {
     /// The name, or "Speaker N" until they're named.
     pub name: String,
     pub named: bool,
+    /// A remembered voice this unnamed speaker sounds like, to confirm with a click.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion: Option<String>,
+}
+
+/// A speaker not named yet, to suggest a name for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UnnamedSpeaker {
+    pub id: String,
+    pub voiceprint: Vec<f32>,
+    /// The suggested name the user said wasn't them.
+    pub declined: Option<String>,
 }
 
 /// A remembered voice, for the speaker directory.
@@ -146,6 +158,12 @@ impl Index {
             db.execute_batch(&format!(
                 "BEGIN; {SPEAKERS_SCHEMA} PRAGMA user_version = 3; COMMIT;"
             ))?;
+        }
+        if version < 4 {
+            // The suggested name the user said wasn't this speaker.
+            db.execute_batch(
+                "BEGIN; ALTER TABLE session_speakers ADD COLUMN declined TEXT; PRAGMA user_version = 4; COMMIT;",
+            )?;
         }
         Ok(Index { db })
     }
@@ -237,6 +255,7 @@ impl Index {
                     .unwrap_or_else(|| SpeakerId(id.clone()).default_name()),
                 named: name.is_some(),
                 id,
+                suggestion: None,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -272,6 +291,39 @@ impl Index {
             |r| r.get(0),
         )?;
         Ok(from_blob(&blob))
+    }
+
+    pub fn unnamed_speakers(&self, session_id: &str) -> Result<Vec<UnnamedSpeaker>, StoreError> {
+        let mut stmt = self.db.prepare(
+            "SELECT speaker_id, voiceprint, declined FROM session_speakers
+             WHERE session_id = ?1 AND name IS NULL",
+        )?;
+        let rows = stmt.query_map([session_id], |r| {
+            let blob: Vec<u8> = r.get(1)?;
+            Ok(UnnamedSpeaker {
+                id: r.get(0)?,
+                voiceprint: from_blob(&blob),
+                declined: r.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Remembers that a speaker isn't `name`, so it isn't suggested for them again.
+    pub fn decline_suggestion(
+        &self,
+        session_id: &str,
+        speaker_id: &str,
+        name: &str,
+    ) -> Result<(), StoreError> {
+        let changed = self.db.execute(
+            "UPDATE session_speakers SET declined = ?3 WHERE session_id = ?1 AND speaker_id = ?2",
+            params![session_id, speaker_id, name],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::NotFound(format!("speaker {speaker_id}")));
+        }
+        Ok(())
     }
 
     /// Adds a voiceprint to a person's averaged voice, creating it if new.
@@ -721,6 +773,29 @@ mod tests {
         );
         assert_eq!(idx.speaker_names("a").unwrap()["speaker_2"], "Bo");
         assert!(idx.rename_speaker("a", "speaker_9", "X").is_err());
+    }
+
+    #[test]
+    fn lists_unnamed_speakers_with_declined_names() {
+        let mut idx = index();
+        idx.save_speakers(
+            "a",
+            &[
+                speaker("speaker_1", Some("Ana"), vec![1.0, 0.0]),
+                speaker("speaker_2", None, vec![0.0, 1.0]),
+            ],
+        )
+        .unwrap();
+        idx.decline_suggestion("a", "speaker_2", "Bo").unwrap();
+        assert_eq!(
+            idx.unnamed_speakers("a").unwrap(),
+            [UnnamedSpeaker {
+                id: "speaker_2".into(),
+                voiceprint: vec![0.0, 1.0],
+                declined: Some("Bo".into()),
+            }]
+        );
+        assert!(idx.decline_suggestion("a", "speaker_9", "Bo").is_err());
     }
 
     #[test]

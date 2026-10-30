@@ -80,7 +80,8 @@ pub fn get_session(
     let found = index.get_session(&id).map_err(|e| e.to_string())?;
     let (record, segments) = found.ok_or("session not found")?;
     let notes = index.notes(&id).map_err(|e| e.to_string())?;
-    let speakers = index.speakers(&id).map_err(|e| e.to_string())?;
+    let mut speakers = index.speakers(&id).map_err(|e| e.to_string())?;
+    crate::speakers::suggest(&index, &id, &mut speakers).map_err(|e| e.to_string())?;
     Ok(SessionDetail {
         record,
         segments,

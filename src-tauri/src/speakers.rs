@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use murmur_core::{Channel, Segment, SpeakerNames};
-use murmur_store::{SessionRecord, SessionSpeaker, VoiceEntry};
+use murmur_store::{Index, SessionRecord, SessionSpeaker, SpeakerInfo, StoreError, VoiceEntry};
 use murmur_stt::speakers::{self, Diarizer, VOICE_MATCH_THRESHOLD};
 use tauri::{AppHandle, Manager};
 
@@ -87,6 +87,47 @@ pub fn names_of(speakers: &[SessionSpeaker]) -> SpeakerNames {
         .iter()
         .filter_map(|s| Some((s.id.clone(), s.name.clone()?)))
         .collect()
+}
+
+/// Fills in who unnamed speakers probably are: remembered voices they match that
+/// aren't in the meeting already. Mostly speakers from before their voice was named.
+pub fn suggest(index: &Index, session_id: &str, speakers: &mut [SpeakerInfo]) -> Result<(), StoreError> {
+    let unnamed = index.unnamed_speakers(session_id)?;
+    if unnamed.is_empty() {
+        return Ok(());
+    }
+    let known = index.voices()?;
+    let taken: Vec<String> = speakers
+        .iter()
+        .filter(|s| s.named)
+        .map(|s| s.name.clone())
+        .collect();
+    let prints: Vec<_> = unnamed
+        .iter()
+        .map(|s| (s.voiceprint.clone(), s.declined.clone()))
+        .collect();
+    let names = speakers::suggest_names(&prints, &known, &taken);
+    for (unnamed, name) in unnamed.iter().zip(names) {
+        if let Some(speaker) = speakers.iter_mut().find(|s| s.id == unnamed.id) {
+            speaker.suggestion = name;
+        }
+    }
+    Ok(())
+}
+
+/// "Not them": stops suggesting `name` for this speaker.
+#[tauri::command]
+pub fn decline_suggestion(
+    app: AppHandle,
+    session_id: String,
+    speaker_id: String,
+    name: String,
+) -> Result<(), String> {
+    let library = app.state::<LibraryState>();
+    let index = library.0.lock().unwrap();
+    index
+        .decline_suggestion(&session_id, &speaker_id, &name)
+        .map_err(|e| e.to_string())
 }
 
 /// Renames a speaker in one session: rewrites the transcript in the session file,
