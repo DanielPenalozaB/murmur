@@ -25,7 +25,7 @@ Ollama, or your own Claude/Gemini API key.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/speakers-dark.png">
-  <img alt="The speaker directory with names to double-check" src="docs/screenshots/speakers-light.png">
+  <img alt="The speaker directory: people Murmur recognizes by voice" src="docs/screenshots/speakers-light.png">
 </picture>
 
 - **Meeting detection:** when Teams, Slack, Zoom or a browser call starts using the

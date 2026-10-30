@@ -31,5 +31,6 @@ carry context between sessions:
   read it first when the user reports a bad recording.
 - README screenshots (`docs/screenshots/<view>-light|dark.png`) come from that preview, so
   they only show sample data: 1280×800 at 1.5× scale (the meeting card at 372×56), in both
-  color schemes. Never screenshot the real app or real sessions for the repo.
+  color schemes. Never screenshot the real app or real sessions for the repo. Speaker review
+  findings only show with `&review` added to the URL.
 - Design source: Google Stitch project 15220382042260412057. Tokens live in `src/styles.css`.

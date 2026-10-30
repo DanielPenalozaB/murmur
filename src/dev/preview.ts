@@ -204,8 +204,13 @@ export function install() {
           { name: "David Kim", meetings: 9, last_seen: iso(9, 9, 0) },
           { name: "Sarah Lin", meetings: 6, last_seen: iso(1, 15, 15) },
           { name: "Marcus Chen", meetings: 4, last_seen: iso(20, 11, 0) },
+          { name: "Lena Fischer", meetings: 3, last_seen: iso(2, 14, 0) },
+          { name: "Omar Haddad", meetings: 2, last_seen: iso(6, 9, 30) },
         ];
+      // Off unless `&review` is in the URL: a tidy library has nothing to review, and
+      // that's how the README shows the directory.
       case "speaker_review": {
+        if (!params.has("review")) return [];
         const at = (id: string, title: string, daysAgo: number, speaker_id: string) => ({
           session_id: id,
           title,
