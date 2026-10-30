@@ -19,6 +19,10 @@ use crate::recording::{self, MAX_LANGUAGES};
 #[derive(Default)]
 pub struct RetranscribeState(AtomicBool);
 
+pub fn is_running(app: &AppHandle) -> bool {
+    app.state::<RetranscribeState>().0.load(Ordering::Acquire)
+}
+
 #[derive(Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RetranscribeEvent {
@@ -81,6 +85,10 @@ fn run(
     events: &Channel<RetranscribeEvent>,
 ) -> Result<(), String> {
     let dir = session_dir(app, id)?;
+    // Without them the transcript would be replaced with an empty one.
+    if !["mic.wav", "system.wav"].iter().any(|f| dir.join(f).exists()) {
+        return Err("this session's recordings were deleted".into());
+    }
     let (record, old_segments) = app
         .state::<LibraryState>()
         .0
@@ -162,7 +170,7 @@ fn run(
     Ok(())
 }
 
-fn session_dir(app: &AppHandle, id: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn session_dir(app: &AppHandle, id: &str) -> Result<std::path::PathBuf, String> {
     // Session ids are timestamps; refuse anything that could leave the folder.
     if id.is_empty()
         || !id

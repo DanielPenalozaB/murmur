@@ -105,7 +105,7 @@ const record = {
   file_path: "/Users/me/Documents/Murmur/Work/2026-10-13 Sprint Release Review.md",
 };
 
-const detail: SessionDetail = { ...record, segments, notes, speakers };
+const detail: SessionDetail = { ...record, segments, notes, speakers, audio_bytes: 241_000_000 };
 
 const cards: SessionCard[] = [
   {
@@ -190,6 +190,8 @@ export function install() {
         return cards;
       case "get_session":
         return detail;
+      case "storage_usage":
+        return { audio_bytes: 2_810_000_000, sessions_with_audio: 23 };
       case "list_voices":
         return [
           { name: "Ana Torres", meetings: 14, last_seen: iso(0, 10, 30) },

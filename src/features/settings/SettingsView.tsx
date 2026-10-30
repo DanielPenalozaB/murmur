@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AudioLines,
   Cloud,
   Cpu,
   FileText,
@@ -14,7 +15,8 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { PageHeader, Toggle, TopBar } from "../../components/ui";
-import { ipc, type Provider, type Settings } from "../../lib/ipc";
+import { formatBytes, ipc, type Provider, type Settings } from "../../lib/ipc";
+import { folderCrumbs } from "../../lib/nav";
 import { languageHint } from "../recorder/StartDialog";
 import { parseVocabulary } from "./vocabulary";
 
@@ -290,6 +292,7 @@ export function SettingsView() {
   const queryClient = useQueryClient();
   const settings = useQuery({ queryKey: ["settings"], queryFn: ipc.getSettings });
   const keys = useQuery({ queryKey: ["api-keys"], queryFn: ipc.apiKeys });
+  const storage = useQuery({ queryKey: ["storage"], queryFn: ipc.storageUsage });
   const [draft, setDraft] = useState<Settings | null>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -323,7 +326,7 @@ export function SettingsView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", "Settings"]} />
+      <TopBar crumbs={[...folderCrumbs(null), "Settings"]} />
       <div className="min-h-0 flex-1 overflow-y-auto px-8">
         <div className="mx-auto flex max-w-[860px] flex-col gap-10 pt-2 pb-16">
           <PageHeader
@@ -499,6 +502,19 @@ export function SettingsView() {
                 Plain files on disk, nothing in the cloud. Notebooks are folders inside it.
               </span>
             </label>
+            {storage.data && (
+              <div className="flex items-start gap-3 rounded-lg bg-muted px-3 py-2.5">
+                <AudioLines className="mt-0.5 size-4 shrink-0 text-ink-soft" />
+                <p className="text-[13px] text-ink-soft">
+                  <span className="font-semibold text-ink">
+                    Recordings use {formatBytes(storage.data.audio_bytes)}
+                  </span>{" "}
+                  across {storage.data.sessions_with_audio}{" "}
+                  {storage.data.sessions_with_audio === 1 ? "session" : "sessions"}. They're kept so
+                  sessions can be re-transcribed; delete a session's audio from its ⋯ menu.
+                </p>
+              </div>
+            )}
           </Stage>
         </div>
       </div>

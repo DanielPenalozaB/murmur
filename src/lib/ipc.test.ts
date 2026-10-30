@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatRelative } from "./ipc";
+import { formatBytes, formatDuration, formatRelative } from "./ipc";
 
 describe("formatting", () => {
   const now = new Date(2026, 9, 13, 12, 0);
@@ -14,5 +14,13 @@ describe("formatting", () => {
     expect(formatDuration(20_000)).toBe("<1 min");
     expect(formatDuration(25 * 60_000)).toBe("25 min");
     expect(formatDuration(75 * 60_000)).toBe("1 h 15 min");
+  });
+});
+
+describe("formatBytes", () => {
+  it("picks a readable unit", () => {
+    expect(formatBytes(0)).toBe("1 KB");
+    expect(formatBytes(240_400_000)).toBe("240 MB");
+    expect(formatBytes(2_810_000_000)).toBe("2.8 GB");
   });
 });

@@ -15,7 +15,7 @@ import {
 import { useState } from "react";
 import { Avatar, TopBar } from "../../components/ui";
 import { formatDate, formatDuration, ipc, type SessionDetail } from "../../lib/ipc";
-import { useNav } from "../../lib/nav";
+import { folderCrumbs, useNav } from "../../lib/nav";
 import { AskPanel } from "../assistant/AskPanel";
 import { Markdown } from "../assistant/Markdown";
 import { NotesDocument } from "../assistant/NotesDocument";
@@ -27,6 +27,7 @@ import {
   SpeakerChip,
   TranscriptTurns,
 } from "../transcript/TranscriptTurns";
+import { SessionMenu } from "./manage";
 import { RetranscribeDialog } from "./RetranscribeDialog";
 import { progressPercent, useRetranscribe } from "./retranscribe";
 
@@ -291,14 +292,18 @@ export function SessionView({ id }: { id: string }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", ...(s?.folder ? s.folder.split("/") : []), s?.title ?? ""]}>
+      <TopBar crumbs={[...folderCrumbs(s?.folder), s?.title ?? ""]}>
         {s && (
           <>
             <button
               type="button"
               className="btn-quiet"
-              title="Transcribe this session again"
-              disabled={running}
+              title={
+                s.audio_bytes > 0
+                  ? "Transcribe this session again"
+                  : "The recordings were deleted, so it can't be transcribed again"
+              }
+              disabled={running || s.audio_bytes === 0}
               onClick={() => setRetranscribing(true)}
             >
               <RotateCcw className={`size-4 ${running ? "animate-spin" : ""}`} />
@@ -323,10 +328,12 @@ export function SessionView({ id }: { id: string }) {
               type="button"
               className="btn-quiet"
               title="Show audio"
+              disabled={s.audio_bytes === 0}
               onClick={() => ipc.openSessionItem(id, "reveal_audio")}
             >
               <AudioLines className="size-4" />
             </button>
+            <SessionMenu session={s} busy={running} />
           </>
         )}
       </TopBar>

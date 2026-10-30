@@ -106,7 +106,11 @@ export type SessionDetail = SessionRecord & {
   segments: Segment[];
   notes: string;
   speakers: SpeakerInfo[];
+  /** Size of the recordings; 0 once deleted, and then it can't be re-transcribed. */
+  audio_bytes: number;
 };
+
+export type StorageUsage = { audio_bytes: number; sessions_with_audio: number };
 
 /** A session as a library card shows it. */
 export type SessionCard = SessionRecord & {
@@ -160,6 +164,14 @@ export const ipc = {
 
   listFolders: () => invoke<Folders>("list_folders"),
   createFolder: (path: string) => invoke<void>("create_folder", { path }),
+  moveFolder: (from: string, to: string) => invoke<void>("move_folder", { from, to }),
+  deleteFolder: (folder: string) => invoke<void>("delete_folder", { folder }),
+  renameSession: (id: string, title: string) => invoke<void>("rename_session", { id, title }),
+  moveSession: (id: string, folder: string) => invoke<void>("move_session", { id, folder }),
+  deleteSession: (id: string) => invoke<void>("delete_session", { id }),
+  deleteSessionAudio: (id: string) => invoke<void>("delete_session_audio", { id }),
+  storageUsage: () => invoke<StorageUsage>("storage_usage"),
+  syncVault: () => invoke<number>("sync_vault"),
   listSessions: (folder: string | null) => invoke<SessionCard[]>("list_sessions", { folder }),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
   search: (query: string) => invoke<SearchHit[]>("search", { query }),
@@ -251,6 +263,13 @@ export function formatRelative(iso: string, now = new Date()) {
   if (days === 0) return `Today, ${time}`;
   if (days === 1) return `Yesterday, ${time}`;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** "240 MB", "2.8 GB". */
+export function formatBytes(bytes: number) {
+  if (bytes < 1e6) return `${Math.max(1, Math.round(bytes / 1e3))} KB`;
+  if (bytes < 1e9) return `${Math.round(bytes / 1e6)} MB`;
+  return `${(bytes / 1e9).toFixed(1)} GB`;
 }
 
 export function formatDuration(ms: number) {

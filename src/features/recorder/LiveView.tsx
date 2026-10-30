@@ -3,7 +3,7 @@ import { AudioWaveform, Circle, Mic, MicOff, NotebookPen, Pause, Play, Square } 
 import { useEffect, useRef, useState } from "react";
 import { AvatarStack, TopBar } from "../../components/ui";
 import { ipc, type RecorderStatus } from "../../lib/ipc";
-import { useNav, useUi } from "../../lib/nav";
+import { folderCrumbs, useNav, useUi } from "../../lib/nav";
 import { AskPanel } from "../assistant/AskPanel";
 import { useNotes } from "../assistant/store";
 import { formatTimestamp } from "../transcript/group";
@@ -143,11 +143,12 @@ export function LiveView() {
 
   const people = ["Me", ...(t.speakers.length > 0 ? t.speakers.map((s) => s.name) : ["Them"])];
   const title = recording || hasContent ? t.title : "Live";
-  const folder = t.saved?.folder ?? settings.data?.last_folder;
+  // The notebook belongs to a recording; before one starts, Live isn't in any.
+  const folder = recording || hasContent ? (t.saved?.folder ?? settings.data?.last_folder) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <TopBar crumbs={["Vault", ...(folder ? folder.split("/") : []), title || "Live"]} />
+      <TopBar crumbs={[...folderCrumbs(folder), title || "Live"]} />
 
       {(recording || hasContent) && (
         <div className="flex items-center gap-4 px-8 pb-4" data-tauri-drag-region>
