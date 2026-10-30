@@ -73,6 +73,17 @@ pub struct UnnamedSpeaker {
     pub declined: Option<String>,
 }
 
+/// A speaker the user named, with the meeting it's from, for reviewing names.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NamedSpeaker {
+    pub session_id: String,
+    pub title: String,
+    pub started_at: String,
+    pub speaker_id: String,
+    pub name: String,
+    pub voiceprint: Vec<f32>,
+}
+
 /// A remembered voice, for the speaker directory.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VoiceEntry {
@@ -163,6 +174,12 @@ impl Index {
             // The suggested name the user said wasn't this speaker.
             db.execute_batch(
                 "BEGIN; ALTER TABLE session_speakers ADD COLUMN declined TEXT; PRAGMA user_version = 4; COMMIT;",
+            )?;
+        }
+        if version < 5 {
+            // Speaker review findings the user said were fine.
+            db.execute_batch(
+                "BEGIN; CREATE TABLE review_dismissed (key TEXT PRIMARY KEY); PRAGMA user_version = 5; COMMIT;",
             )?;
         }
         Ok(Index { db })
@@ -391,6 +408,77 @@ impl Index {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Every named speaker with a voiceprint, oldest meeting first.
+    pub fn named_speakers(&self) -> Result<Vec<NamedSpeaker>, StoreError> {
+        let mut stmt = self.db.prepare(
+            "SELECT ss.session_id, s.title, s.started_at, ss.speaker_id, ss.name, ss.voiceprint
+             FROM session_speakers ss JOIN sessions s ON s.id = ss.session_id
+             WHERE ss.name IS NOT NULL AND length(ss.voiceprint) > 0
+             ORDER BY s.started_at, CAST(SUBSTR(ss.speaker_id, 9) AS INTEGER)",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok(NamedSpeaker {
+                session_id: r.get(0)?,
+                title: r.get(1)?,
+                started_at: r.get(2)?,
+                speaker_id: r.get(3)?,
+                name: r.get(4)?,
+                voiceprint: from_blob(&r.get::<_, Vec<u8>>(5)?),
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Takes a speaker's name away ("Speaker N" again) and returns the old one.
+    pub fn unname_speaker(&self, session_id: &str, speaker_id: &str) -> Result<Option<String>, StoreError> {
+        let old: Option<String> = self
+            .db
+            .query_row(
+                "SELECT name FROM session_speakers WHERE session_id = ?1 AND speaker_id = ?2",
+                params![session_id, speaker_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .ok_or_else(|| StoreError::NotFound(format!("speaker {speaker_id}")))?;
+        self.db.execute(
+            "UPDATE session_speakers SET name = NULL WHERE session_id = ?1 AND speaker_id = ?2",
+            params![session_id, speaker_id],
+        )?;
+        Ok(old)
+    }
+
+    /// Recomputes a remembered voice from the speakers still named `name`, after one
+    /// was renamed or unnamed: a wrong one would otherwise stay mixed into it. With
+    /// none left the voice is forgotten.
+    pub fn rebuild_voice(&self, name: &str) -> Result<(), StoreError> {
+        let prints: Vec<Vec<u8>> = self
+            .db
+            .prepare(
+                "SELECT ss.voiceprint FROM session_speakers ss JOIN sessions s ON s.id = ss.session_id
+                 WHERE ss.name = ?1 AND length(ss.voiceprint) > 0 ORDER BY s.started_at",
+            )?
+            .query_map([name], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        self.forget_voice(name)?;
+        for blob in prints {
+            self.remember_voice(name, &from_blob(&blob))?;
+        }
+        Ok(())
+    }
+
+    /// Keys of speaker review findings the user marked as fine.
+    pub fn dismissed_reviews(&self) -> Result<Vec<String>, StoreError> {
+        let mut stmt = self.db.prepare("SELECT key FROM review_dismissed")?;
+        let rows = stmt.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn dismiss_review(&self, key: &str) -> Result<(), StoreError> {
+        self.db
+            .execute("INSERT OR IGNORE INTO review_dismissed (key) VALUES (?1)", [key])?;
+        Ok(())
     }
 
     /// Forgets a voice so it's no longer matched. Past sessions keep the name.
@@ -796,6 +884,66 @@ mod tests {
             }]
         );
         assert!(idx.decline_suggestion("a", "speaker_9", "Bo").is_err());
+    }
+
+    #[test]
+    fn unnaming_a_speaker_rebuilds_their_voice() {
+        let mut idx = index();
+        idx.save_speakers(
+            "a",
+            &[
+                speaker("speaker_1", Some("Ana"), vec![1.0, 0.0]),
+                speaker("speaker_2", Some("Ana"), vec![0.0, 1.0]),
+                speaker("speaker_3", None, vec![0.0, 1.0]),
+            ],
+        )
+        .unwrap();
+        idx.save_speakers("b", &[speaker("speaker_1", Some("Bo"), vec![0.0, 1.0])])
+            .unwrap();
+        idx.remember_voice("Ana", &[1.0, 0.0]).unwrap();
+        idx.remember_voice("Ana", &[0.0, 1.0]).unwrap();
+        idx.remember_voice("Bo", &[0.0, 1.0]).unwrap();
+
+        let named: Vec<_> = idx
+            .named_speakers()
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.session_id, s.speaker_id, s.name))
+            .collect();
+        assert_eq!(
+            named,
+            [
+                ("a".into(), "speaker_1".into(), "Ana".into()),
+                ("a".into(), "speaker_2".into(), "Ana".into()),
+                ("b".into(), "speaker_1".into(), "Bo".into()),
+            ]
+        );
+
+        assert_eq!(
+            idx.unname_speaker("a", "speaker_2").unwrap().as_deref(),
+            Some("Ana")
+        );
+        assert_eq!(idx.unname_speaker("a", "speaker_3").unwrap(), None);
+        assert!(idx.unname_speaker("a", "speaker_9").is_err());
+        idx.rebuild_voice("Ana").unwrap();
+        let voices = idx.voices().unwrap();
+        assert_eq!(
+            voices[0],
+            ("Ana".to_string(), vec![1.0, 0.0]),
+            "only the speaker still named Ana"
+        );
+
+        idx.unname_speaker("b", "speaker_1").unwrap();
+        idx.rebuild_voice("Bo").unwrap();
+        assert_eq!(idx.voices().unwrap().len(), 1, "no one is named Bo any more");
+    }
+
+    #[test]
+    fn remembers_dismissed_reviews() {
+        let idx = index();
+        idx.dismiss_review("same:Ana:a").unwrap();
+        idx.dismiss_review("same:Ana:a").unwrap();
+        assert_eq!(idx.dismissed_reviews().unwrap(), ["same:Ana:a"]);
     }
 
     #[test]

@@ -205,6 +205,39 @@ export function install() {
           { name: "Sarah Lin", meetings: 6, last_seen: iso(1, 15, 15) },
           { name: "Marcus Chen", meetings: 4, last_seen: iso(20, 11, 0) },
         ];
+      case "speaker_review": {
+        const at = (id: string, title: string, daysAgo: number, speaker_id: string) => ({
+          session_id: id,
+          title,
+          started_at: iso(daysAgo, 10, 30),
+          speaker_id,
+          label: `Speaker ${speaker_id.slice(8)}`,
+        });
+        return [
+          {
+            kind: "pair",
+            key: "pair",
+            name: "David Kim",
+            score: 0.31,
+            speakers: [
+              at(record.id, record.title, 0, "speaker_4"),
+              at(record.id, record.title, 0, "speaker_7"),
+            ],
+          },
+          {
+            kind: "outlier",
+            key: "outlier",
+            name: "Ana Torres",
+            score: 0.42,
+            speaker: at("c", "Architecture sync — caching strategy", 9, "speaker_2"),
+            compared: [
+              { speaker: at(record.id, record.title, 0, "speaker_1"), score: 0.38 },
+              { speaker: at("b", "1:1 with Sarah", 1, "speaker_3"), score: 0.45 },
+            ],
+          },
+          { kind: "look_alike", key: "alike", names: ["Marcus Chen", "Sarah Lin"], score: 0.64 },
+        ];
+      }
       case "sessions_with_speaker":
         return [record];
       case "search":

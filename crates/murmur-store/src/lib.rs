@@ -12,7 +12,8 @@ pub use export::{
     replace_transcript, write_notes, write_session_file, write_transcript,
 };
 pub use index::{
-    Index, SearchHit, SessionCard, SessionRecord, SessionSpeaker, SpeakerInfo, UnnamedSpeaker, VoiceEntry,
+    Index, NamedSpeaker, SearchHit, SessionCard, SessionRecord, SessionSpeaker, SpeakerInfo, UnnamedSpeaker,
+    VoiceEntry,
 };
 pub use manage::{
     delete_folder, delete_session, move_folder, move_vault, relocate_session, replace_header, sync_vault,

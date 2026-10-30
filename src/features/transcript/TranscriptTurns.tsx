@@ -14,12 +14,15 @@ export function SpeakerChip({
   channel,
   speakerId,
   onRename,
+  onUnname,
   plain,
 }: {
   label: string;
   channel: Segment["channel"];
   speakerId: string | null;
   onRename?: Rename;
+  /** Offered while editing a named speaker: back to "Speaker N". */
+  onUnname?: () => Promise<void>;
   /** No chip background, for use inside another chip. */
   plain?: boolean;
 }) {
@@ -57,6 +60,26 @@ export function SpeakerChip({
             if (e.key === "Escape") setDraft(null);
           }}
         />
+        {onUnname && (
+          <button
+            type="button"
+            className="btn-quiet py-0 text-[12px]"
+            title="Wrong person: make them a numbered speaker again"
+            // Before the input's blur saves and closes the editor.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={async () => {
+              try {
+                await onUnname();
+                setDraft(null);
+                setError(null);
+              } catch (e) {
+                setError(String(e));
+              }
+            }}
+          >
+            Remove name
+          </button>
+        )}
         {error && <span className="text-[12px] text-accent">{error}</span>}
       </span>
     );

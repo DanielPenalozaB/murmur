@@ -13,6 +13,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { LogoMark } from "../../components/ui";
 import { type FolderNode, ipc } from "../../lib/ipc";
 import { useNav, useUi } from "../../lib/nav";
+import { useSpeakerReview } from "../speakers/SpeakerReview";
 
 function Item({
   icon,
@@ -22,10 +23,13 @@ function Item({
   depth = 0,
   onClick,
   live,
+  alert,
 }: {
   icon: ReactNode;
   label: string;
   count?: number;
+  /** Things that need the user's attention, shown as a badge. */
+  alert?: { count: number; title: string };
   active: boolean;
   depth?: number;
   onClick: () => void;
@@ -43,6 +47,14 @@ function Item({
       <span className="text-ink-soft [&>svg]:size-4">{icon}</span>
       <span className="flex-1 truncate">{label}</span>
       {live && <span className="size-2 animate-pulse rounded-full bg-accent" />}
+      {alert && alert.count > 0 && (
+        <span
+          title={alert.title}
+          className="rounded-full bg-accent-soft px-1.5 text-[11px] font-semibold tabular-nums text-on-accent-soft"
+        >
+          {alert.count}
+        </span>
+      )}
       {count !== undefined && count > 0 && (
         <span className="text-xs tabular-nums text-outline">{count}</span>
       )}
@@ -56,6 +68,7 @@ export function Sidebar({ recording }: { recording: boolean }) {
   const queryClient = useQueryClient();
   const folders = useQuery({ queryKey: ["folders"], queryFn: ipc.listFolders });
   const info = useQuery({ queryKey: ["app-info"], queryFn: ipc.appInfo });
+  const review = useSpeakerReview();
   const [query, setQuery] = useState("");
   const [newFolder, setNewFolder] = useState<string | null>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -205,6 +218,10 @@ export function Sidebar({ recording }: { recording: boolean }) {
         <Item
           icon={<UsersRound />}
           label="Speakers"
+          alert={{
+            count: review.data?.length ?? 0,
+            title: "Speaker names to double-check",
+          }}
           active={view.kind === "speakers"}
           onClick={() => go({ kind: "speakers" })}
         />

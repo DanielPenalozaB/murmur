@@ -21,6 +21,7 @@ import { Markdown } from "../assistant/Markdown";
 import { NotesDocument } from "../assistant/NotesDocument";
 import { actionItems, toggleAction } from "../assistant/notes";
 import { useNotes } from "../assistant/store";
+import { refreshSpeakers } from "../speakers/review";
 import {
   type Rename,
   type Seek,
@@ -42,10 +43,12 @@ type Decline = (speakerId: string, name: string) => Promise<void>;
 function Attendees({
   session,
   onRename,
+  onUnname,
   onDecline,
 }: {
   session: SessionDetail;
   onRename: Rename;
+  onUnname: (speakerId: string) => Promise<void>;
   onDecline: Decline;
 }) {
   return (
@@ -59,7 +62,14 @@ function Attendees({
       {session.speakers.map((s) => (
         <span key={s.id} className="chip gap-1.5 bg-surface py-1">
           <Avatar name={s.name} size="xs" />
-          <SpeakerChip label={s.name} channel="system" speakerId={s.id} onRename={onRename} plain />
+          <SpeakerChip
+            label={s.name}
+            channel="system"
+            speakerId={s.id}
+            onRename={onRename}
+            onUnname={s.named ? () => onUnname(s.id) : undefined}
+            plain
+          />
           {s.suggestion && (
             <Suggestion
               name={s.suggestion}
@@ -278,11 +288,11 @@ export function SessionView({ id }: { id: string }) {
   };
   const rename: Rename = async (speakerId, name) => {
     await ipc.renameSpeaker(id, speakerId, name);
-    await Promise.all(
-      [["session", id], ["sessions"], ["voices"]].map((queryKey) =>
-        queryClient.invalidateQueries({ queryKey }),
-      ),
-    );
+    await refreshSpeakers(queryClient, id);
+  };
+  const unname = async (speakerId: string) => {
+    await ipc.unnameSpeaker(id, speakerId);
+    await refreshSpeakers(queryClient, id);
   };
   const decline: Decline = async (speakerId, name) => {
     await ipc.declineSuggestion(id, speakerId, name);
@@ -408,7 +418,7 @@ export function SessionView({ id }: { id: string }) {
                   </p>
                 )}
 
-                <Attendees session={s} onRename={rename} onDecline={decline} />
+                <Attendees session={s} onRename={rename} onUnname={unname} onDecline={decline} />
 
                 <div className="flex justify-center gap-2">
                   {(["notes", "transcript"] as const).map((t) => (
