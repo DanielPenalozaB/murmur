@@ -29,7 +29,11 @@ async function start() {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
-        {popup ? <MeetingPopup /> : <App />}
+        {popup ? (
+          <MeetingPopup initiallyCollapsed={params.get("view") === "popup-collapsed"} />
+        ) : (
+          <App />
+        )}
       </QueryClientProvider>
     </React.StrictMode>,
   );

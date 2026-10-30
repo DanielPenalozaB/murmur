@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AudioLines,
+  BellOff,
   Cloud,
   Cpu,
   FileText,
@@ -12,6 +13,7 @@ import {
   SpellCheck,
   Type,
   UsersRound,
+  X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { PageHeader, Toggle, TopBar } from "../../components/ui";
@@ -447,6 +449,36 @@ export function SettingsView() {
                 label="Offer to record detected meetings"
               />
             </Row>
+            {draft.ignored_meeting_apps.length > 0 && (
+              <Row
+                icon={<BellOff className="size-4" />}
+                title="Not offered for"
+                detail="Calls in these apps don't get an offer. Remove one to be asked again."
+              >
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  {draft.ignored_meeting_apps.map((name) => (
+                    <span key={name} className="chip gap-1 bg-muted py-1">
+                      {name}
+                      <button
+                        type="button"
+                        className="rounded-full p-0.5 text-ink-soft hover:bg-high hover:text-ink"
+                        aria-label={`Ask again for ${name}`}
+                        title="Ask again"
+                        onClick={() =>
+                          set({
+                            ignored_meeting_apps: draft.ignored_meeting_apps.filter(
+                              (a) => a !== name,
+                            ),
+                          })
+                        }
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </Row>
+            )}
             <Row
               icon={<UsersRound className="size-4" />}
               title="Speaker identification"

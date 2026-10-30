@@ -117,6 +117,8 @@ pub fn run() {
             models::download_models,
             meeting::detected_meeting,
             meeting::dismiss_meeting,
+            meeting::ignore_meeting_app,
+            meeting::collapse_meeting_popup,
             meeting::record_meeting,
             meeting::stop_meeting,
         ])

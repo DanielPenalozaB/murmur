@@ -37,6 +37,8 @@ export type Settings = {
   vocabulary: string[];
   /** Offer to record when a calling app starts using the microphone. */
   detect_meetings: boolean;
+  /** Calling apps never offered for, as named in the offer. */
+  ignored_meeting_apps: string[];
 };
 
 export type TrayAction = "start" | "pause" | "resume" | "mic-off" | "mic-on" | "stop";
@@ -266,6 +268,9 @@ export const ipc = {
 
   detectedMeeting: () => invoke<DetectedMeeting | null>("detected_meeting"),
   dismissMeeting: () => invoke<void>("dismiss_meeting"),
+  ignoreMeetingApp: (name: string) => invoke<void>("ignore_meeting_app", { name }),
+  collapseMeetingPopup: (collapsed: boolean) =>
+    invoke<void>("collapse_meeting_popup", { collapsed }),
   /** From the floating card: brings the main window forward to record. */
   recordMeeting: () => invoke<void>("record_meeting"),
   /** Stops the recording once the detected call ended. */

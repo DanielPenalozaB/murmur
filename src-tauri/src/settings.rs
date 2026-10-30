@@ -30,6 +30,8 @@ pub struct Settings {
     pub vocabulary: Vec<String>,
     /// Offer to record when a calling app starts using the microphone.
     pub detect_meetings: bool,
+    /// Calling apps (as named in the offer, e.g. "Slack") never offered for.
+    pub ignored_meeting_apps: Vec<String>,
 }
 
 impl Default for Settings {
@@ -44,7 +46,15 @@ impl Default for Settings {
             auto_notes: true,
             vocabulary: Vec::new(),
             detect_meetings: true,
+            ignored_meeting_apps: Vec::new(),
         }
+    }
+}
+
+impl Settings {
+    /// Whether a call in `app` (as named in the offer) gets an offer to record.
+    pub fn offers_for(&self, app: &str) -> bool {
+        self.detect_meetings && !self.ignored_meeting_apps.iter().any(|a| a == app)
     }
 }
 
@@ -135,4 +145,27 @@ pub fn update_settings(
     save(&app, &settings)?;
     *state.0.lock().unwrap() = settings;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ignored_apps_and_the_switch_stop_offers() {
+        let mut settings = Settings {
+            ignored_meeting_apps: vec!["Slack".into()],
+            ..Settings::default()
+        };
+        assert!(settings.offers_for("Microsoft Teams"));
+        assert!(!settings.offers_for("Slack"));
+        settings.detect_meetings = false;
+        assert!(!settings.offers_for("Microsoft Teams"));
+    }
+
+    #[test]
+    fn older_settings_files_load_without_the_ignore_list() {
+        let settings: Settings = serde_json::from_str(r#"{"detect_meetings": true}"#).unwrap();
+        assert!(settings.ignored_meeting_apps.is_empty());
+    }
 }
