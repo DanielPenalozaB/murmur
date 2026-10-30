@@ -3,6 +3,7 @@
 
 mod filter;
 mod language;
+pub mod review;
 pub mod speakers;
 mod whisper;
 

@@ -126,6 +126,35 @@ export type SessionCard = SessionRecord & {
 
 export type VoiceEntry = { name: string; meetings: number; last_seen: string | null };
 
+/** A named speaker in a review finding. */
+export type ReviewSpeaker = {
+  session_id: string;
+  title: string;
+  started_at: string;
+  speaker_id: string;
+  /** "Speaker 10", what they're called once unnamed. */
+  label: string;
+};
+
+/** Something to double-check about speaker names; `score` is voice similarity, 0–1. */
+export type ReviewItem =
+  | {
+      kind: "pair";
+      key: string;
+      name: string;
+      score: number;
+      speakers: [ReviewSpeaker, ReviewSpeaker];
+    }
+  | {
+      kind: "outlier";
+      key: string;
+      name: string;
+      score: number;
+      speaker: ReviewSpeaker;
+      compared: { speaker: ReviewSpeaker; score: number }[];
+    }
+  | { kind: "look_alike"; key: string; names: [string, string]; score: number };
+
 export type FolderNode = { name: string; path: string; children: FolderNode[] };
 export type Folders = { tree: FolderNode[]; counts: Record<string, number> };
 
@@ -205,6 +234,10 @@ export const ipc = {
     invoke<void>("rename_speaker", { sessionId, speakerId, name }),
   declineSuggestion: (sessionId: string, speakerId: string, name: string) =>
     invoke<void>("decline_suggestion", { sessionId, speakerId, name }),
+  unnameSpeaker: (sessionId: string, speakerId: string) =>
+    invoke<void>("unname_speaker", { sessionId, speakerId }),
+  speakerReview: () => invoke<ReviewItem[]>("speaker_review"),
+  dismissReview: (key: string) => invoke<void>("dismiss_review", { key }),
   listVoices: () => invoke<VoiceEntry[]>("list_voices"),
   forgetVoice: (name: string) => invoke<void>("forget_voice", { name }),
   sessionsWithSpeaker: (name: string) => invoke<SessionRecord[]>("sessions_with_speaker", { name }),

@@ -277,7 +277,7 @@ fn ms_to_sample(ms: u64) -> usize {
     (ms * SAMPLE_RATE as u64 / 1000) as usize
 }
 
-fn normalize(mut v: Vec<f32>) -> Vec<f32> {
+pub(crate) fn normalize(mut v: Vec<f32>) -> Vec<f32> {
     let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
     if norm > 0.0 {
         v.iter_mut().for_each(|x| *x /= norm);

@@ -76,6 +76,16 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
 | Database | `rusqlite` (bundled, FTS5) |
 | Logging | `tracing` |
 
+## Speaker review
+
+Names are checked against voices on the Speakers screen (`murmur_stt::review`): the
+speakers sharing a name should sound alike (below 50% similarity they're probably two
+people), and two remembered voices that sound alike (60%+) but never met in one meeting
+may be one person. Correcting or removing a name rebuilds the remembered voice from the
+speakers still under it (`Index::rebuild_voice`), since `remember_voice` only averages
+in. Correcting a name leaves the notes alone; only a "Speaker N" is replaced there.
+"Looks right" stores the finding's key in `review_dismissed`.
+
 ## Problem log
 
 Warnings, errors and panics are appended to `~/Library/Logs/dev.murmur.app/murmur.log`

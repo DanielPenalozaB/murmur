@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Avatar, PageHeader, TopBar } from "../../components/ui";
 import { formatRelative, ipc, type VoiceEntry } from "../../lib/ipc";
 import { folderCrumbs, useNav } from "../../lib/nav";
+import { SpeakerReview } from "./SpeakerReview";
 
 function VoiceCard({ voice }: { voice: VoiceEntry }) {
   const go = useNav((s) => s.go);
@@ -18,7 +19,12 @@ function VoiceCard({ voice }: { voice: VoiceEntry }) {
   });
   const forget = useMutation({
     mutationFn: () => ipc.forgetVoice(voice.name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["voices"] }),
+    onSuccess: () =>
+      Promise.all(
+        [["voices"], ["speaker-review"]].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      ),
   });
 
   return (
@@ -117,6 +123,8 @@ export function SpeakersView() {
           >
             <span className="chip bg-local-soft py-1 text-on-local-soft">{count} active</span>
           </PageHeader>
+
+          <SpeakerReview />
 
           <div className="grid grid-cols-[1fr_340px] items-start gap-6">
             <div className="grid grid-cols-2 gap-3">
