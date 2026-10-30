@@ -58,7 +58,7 @@ function Card({
         <span className="truncate">{people.map((p) => (p === "Me" ? "You" : p)).join(", ")}</span>
         {total > 0 && (
           <span
-            className={`chip ml-auto ${card.actions_open === 0 ? "bg-local-soft text-on-local-soft" : "bg-muted text-ink"}`}
+            className={`chip ml-auto shrink-0 whitespace-nowrap ${card.actions_open === 0 ? "bg-local-soft text-on-local-soft" : "bg-muted text-ink"}`}
           >
             <CheckCircle2 className="size-3.5" />
             {card.actions_open === 0
@@ -80,7 +80,7 @@ function Preview({ id }: { id: string }) {
   const items = actionItems(s.notes);
 
   return (
-    <aside className="card flex flex-col overflow-hidden">
+    <aside className="card flex min-h-0 flex-col overflow-hidden">
       <div className="flex items-center justify-between bg-sidebar px-5 py-3">
         <span className="flex items-center gap-2 text-[12px] font-medium text-ink-soft">
           <span className="size-2 rounded-full bg-local" /> Local document preview
@@ -94,7 +94,7 @@ function Preview({ id }: { id: string }) {
           <ExternalLink className="size-4" />
         </button>
       </div>
-      <div className="flex flex-col gap-5 overflow-y-auto p-5">
+      <div className="flex min-h-0 flex-col gap-5 overflow-y-auto p-5">
         <div>
           <span className="chip bg-local-soft text-on-local-soft">{s.folder || "Vault root"}</span>
           <h2 className="mt-2 font-serif text-[28px] leading-8">{s.title}</h2>
@@ -200,7 +200,8 @@ export function FolderView({ folder }: { folder: string | null }) {
           )}
 
           {cards.length > 0 && (
-            <div className="grid grid-cols-[1fr_400px] items-start gap-6">
+            <div className="grid grid-cols-[minmax(0,1fr)_400px] items-start gap-6">
+              {/* minmax(0, …): a card with a long speaker list must not widen the column. */}
               <div className="flex flex-col gap-4">
                 <div className="flex items-center justify-between px-1">
                   <span className="eyebrow">Recent captures &amp; syntheses</span>
@@ -220,7 +221,11 @@ export function FolderView({ folder }: { folder: string | null }) {
                   Double-click a note to open it <ArrowRight className="size-3" />
                 </p>
               </div>
-              <div className="sticky top-0">{current && <Preview id={current} />}</div>
+              {/* Fits the scroll area (window minus the 3.5rem top bar and 2rem bottom padding), so a
+                  long preview scrolls inside the panel instead of with the list. */}
+              <div className="sticky top-0 flex max-h-[calc(100vh-5.5rem)] flex-col">
+                {current && <Preview id={current} />}
+              </div>
             </div>
           )}
         </div>

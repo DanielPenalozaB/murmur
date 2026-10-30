@@ -31,7 +31,8 @@ export function MeetingBanner({ recording }: { recording: boolean }) {
     };
   }, [go, setStartOpen]);
 
-  if (!meeting || recording) return null;
+  // A call to record only matters when idle; one that ended, while recording.
+  if (!meeting || meeting.ended !== recording) return null;
 
   const dismiss = () => {
     setMeeting(null);
@@ -46,20 +47,35 @@ export function MeetingBanner({ recording }: { recording: boolean }) {
     >
       <Radio className="size-4 shrink-0" />
       <p className="min-w-0 flex-1 text-[13px]">
-        <span className="font-semibold">{meeting.app}</span> is using your microphone.{" "}
-        {meeting.browser ? "In a call?" : "Record this meeting?"}
+        <span className="font-semibold">{meeting.app}</span>{" "}
+        {meeting.ended
+          ? "stopped using your microphone. Has the call ended?"
+          : `is using your microphone. ${meeting.browser ? "In a call?" : "Record this meeting?"}`}
       </p>
-      <button
-        type="button"
-        className="btn-primary"
-        onClick={() => {
-          dismiss();
-          go({ kind: "live" });
-          setStartOpen(true, meetingTitle(meeting));
-        }}
-      >
-        Record
-      </button>
+      {meeting.ended ? (
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => {
+            setMeeting(null);
+            void ipc.stopMeeting();
+          }}
+        >
+          Stop recording
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => {
+            dismiss();
+            go({ kind: "live" });
+            setStartOpen(true, meetingTitle(meeting));
+          }}
+        >
+          Record
+        </button>
+      )}
       <button type="button" className="btn-quiet" aria-label="Dismiss" onClick={dismiss}>
         <X className="size-4" />
       </button>

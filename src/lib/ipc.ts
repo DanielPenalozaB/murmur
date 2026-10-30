@@ -39,8 +39,15 @@ export type Settings = {
   detect_meetings: boolean;
 };
 
+export type TrayAction = "start" | "pause" | "resume" | "mic-off" | "mic-on" | "stop";
+
 /** A calling app, or a browser (probably a web call), that has been using the mic. */
-export type DetectedMeeting = { app: string; browser: boolean };
+export type DetectedMeeting = {
+  app: string;
+  browser: boolean;
+  /** It let go of the mic while Murmur is still recording: offer to stop. */
+  ended: boolean;
+};
 
 export type RecorderStatus = {
   paused: boolean;
@@ -201,9 +208,14 @@ export const ipc = {
   dismissMeeting: () => invoke<void>("dismiss_meeting"),
   /** From the floating card: brings the main window forward to record. */
   recordMeeting: () => invoke<void>("record_meeting"),
+  /** Stops the recording once the detected call ended. */
+  stopMeeting: () => invoke<void>("stop_meeting"),
   /** Resolves to an unlisten function. */
   onMeeting: (handler: (meeting: DetectedMeeting | null) => void) =>
     listen<DetectedMeeting | null>("meeting", (event) => handler(event.payload)),
+  /** A menu-bar item; the window runs it as it would its own button. */
+  onTrayAction: (handler: (action: TrayAction) => void) =>
+    listen<TrayAction>("tray", (event) => handler(event.payload)),
   /** The floating card's Record was clicked; the main window opens the dialog. */
   onRecordMeeting: (handler: (meeting: DetectedMeeting) => void) =>
     listen<DetectedMeeting>("record-meeting", (event) => handler(event.payload)),

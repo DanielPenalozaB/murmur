@@ -64,6 +64,8 @@ export function useRecorder() {
     start: (session: NewSession) => start.mutate(session),
     togglePause: () => status.data && pause.mutate(!status.data.paused),
     toggleMic: () => status.data && mute.mutate(!status.data.mic_muted),
+    setPaused: (paused: boolean) => pause.mutate(paused),
+    setMicMuted: (muted: boolean) => mute.mutate(muted),
     stop: () => stop.mutate(),
     starting: start.isPending,
     busy: start.isPending || stop.isPending,

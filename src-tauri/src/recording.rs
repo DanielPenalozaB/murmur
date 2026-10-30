@@ -15,6 +15,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
 use crate::library::LibraryState;
+use crate::meeting;
 use crate::settings::{self, SettingsState};
 
 const WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
@@ -199,6 +200,7 @@ pub async fn start_recording(
     on_event: Channel<TranscriptEvent>,
 ) -> Result<(), String> {
     murmur_store::validate_folder(&folder).map_err(|e| e.to_string())?;
+    meeting::clear(&app);
     warm_up_llm(&app);
     if languages.len() > MAX_LANGUAGES {
         return Err(format!("choose at most {MAX_LANGUAGES} languages"));
@@ -536,6 +538,7 @@ pub fn set_mic_muted(muted: bool, state: State<RecordingState>) -> Result<(), St
 
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle) -> Result<Recording, String> {
+    meeting::clear(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let active = app.state::<RecordingState>().active.lock().unwrap().take();
         let ActiveSession {

@@ -1,6 +1,6 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|live-silent|setup|empty|start|meeting|popup|library|session|retranscribing|search|speakers|settings`.
+// `?preview&view=live|live-muted|live-silent|setup|empty|start|meeting|popup|popup-ended|library|session|retranscribing|search|speakers|settings`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
@@ -137,6 +137,18 @@ const cards: SessionCard[] = [
     actions_done: 0,
     speakers: ["David Kim", "Ana Torres", "Marcus Chen"],
   },
+  {
+    ...record,
+    id: "d",
+    title: "All-hands Q&A",
+    started_at: iso(12, 16, 0),
+    duration_ms: 64 * 60_000,
+    excerpt: "Roadmap review and open questions from every team.",
+    actions_open: 4,
+    actions_done: 0,
+    // A long list must truncate, not widen the column.
+    speakers: Array.from({ length: 50 }, (_, i) => `Speaker ${i + 1}`),
+  },
 ];
 
 const settings: Settings = {
@@ -219,8 +231,9 @@ export function install() {
       case "download_models":
         return new Promise(() => {});
       case "detected_meeting":
+        if (view === "popup-ended") return { app: "Microsoft Teams", browser: false, ended: true };
         return view === "meeting" || view === "popup"
-          ? { app: "Microsoft Teams", browser: false }
+          ? { app: "Microsoft Teams", browser: false, ended: false }
           : null;
       case "session_languages":
         return ["en", "es"];
