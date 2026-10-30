@@ -3,6 +3,7 @@ mod library;
 mod manage;
 mod meeting;
 mod models;
+mod permissions;
 mod recording;
 mod retranscribe;
 mod settings;
@@ -83,6 +84,8 @@ pub fn run() {
             manage::delete_folder,
             manage::storage_usage,
             manage::sync_vault,
+            permissions::permissions,
+            permissions::open_privacy_settings,
             recording::start_recording,
             recording::set_recording_paused,
             recording::set_mic_muted,

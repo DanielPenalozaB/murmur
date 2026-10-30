@@ -5,6 +5,8 @@
 //   audiocap --source mic      default input device via AVAudioEngine
 //   audiocap --watch-mic       prints the bundle IDs of processes using audio input,
 //                              space-separated, one line each time the set changes
+//   audiocap --permissions     prints `mic=<state> system=<state>` and exits; a state is
+//                              granted, denied, undetermined or unknown
 //
 // Diagnostics go to stderr so stdout stays a clean PCM stream. The process exits
 // when stdin closes (the parent stopped or died), on SIGINT/SIGTERM, or on a
@@ -445,17 +447,50 @@ final class MicWatcher {
     }
 }
 
+// MARK: - Permissions
+
+/// Whether macOS lets Murmur capture each source. macOS attributes the helper's access
+/// to the app that launched it, so this answers for Murmur (or the terminal in dev).
+func permissions() -> String {
+    let mic: String
+    switch AVCaptureDevice.authorizationStatus(for: .audio) {
+    case .authorized: mic = "granted"
+    case .notDetermined: mic = "undetermined"
+    default: mic = "denied"
+    }
+    return "mic=\(mic) system=\(systemAudioPermission())"
+}
+
+/// System audio recording has no public status API. TCC's own preflight answers it,
+/// looked up at runtime so a macOS without it reports "unknown" instead of crashing.
+func systemAudioPermission() -> String {
+    typealias Preflight = @convention(c) (CFString, CFDictionary?) -> Int
+    guard let tcc = dlopen("/System/Library/PrivateFrameworks/TCC.framework/Versions/A/TCC", RTLD_NOW),
+        let symbol = dlsym(tcc, "TCCAccessPreflight")
+    else { return "unknown" }
+    let preflight = unsafeBitCast(symbol, to: Preflight.self)
+    switch preflight("kTCCServiceAudioCapture" as CFString, nil) {
+    case 0: return "granted"
+    case 1: return "denied"
+    case 2: return "undetermined"
+    default: return "unknown"
+    }
+}
+
 // MARK: - Entry point
 
 let args = CommandLine.arguments
 let stop: () -> Void
-if args.contains("--watch-mic") {
+if args.contains("--permissions") {
+    print(permissions())
+    exit(0)
+} else if args.contains("--watch-mic") {
     let watcher = MicWatcher()
     watcher.start()
     stop = watcher.stop
 } else {
     guard let flag = args.firstIndex(of: "--source"), flag + 1 < args.count else {
-        fail("usage: audiocap --source mic|system | --watch-mic", code: 64)
+        fail("usage: audiocap --source mic|system | --watch-mic | --permissions", code: 64)
     }
     switch args[flag + 1] {
     case "system":

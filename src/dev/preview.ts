@@ -1,6 +1,6 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|live-silent|setup|empty|start|meeting|popup|popup-ended|library|session|retranscribing|search|speakers|settings`.
+// `?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|library|session|retranscribing|search|speakers|settings`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
@@ -190,6 +190,10 @@ export function install() {
         return cards;
       case "get_session":
         return detail;
+      case "permissions":
+        return view === "permissions"
+          ? { mic: "granted", system: "denied" }
+          : { mic: "granted", system: "granted" };
       case "storage_usage":
         return { audio_bytes: 2_810_000_000, sessions_with_audio: 23 };
       case "list_voices":
@@ -277,6 +281,7 @@ export function install() {
   const nav = {
     live: { kind: "live" },
     setup: { kind: "live" },
+    permissions: { kind: "live" },
     meeting: { kind: "folder", folder: null },
     library: { kind: "folder", folder: null },
     session: { kind: "session", id: record.id },

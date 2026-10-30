@@ -25,6 +25,6 @@ carry context between sessions:
 - Slow end-to-end check of speakers (needs models + macOS `say`):
   `cargo test --release -p murmur-stt --test speakers_pipeline -- --ignored`.
 - UI preview without the native app: with `pnpm dev` running, open
-  `http://127.0.0.1:1420/?preview&view=live|live-muted|live-silent|setup|empty|start|session|retranscribing|library|search|speakers|settings`
+  `http://127.0.0.1:1420/?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|session|retranscribing|library|search|speakers|settings`
   (Tauri IPC is mocked with sample data from `src/dev/preview.ts`; dev builds only).
 - Design source: Google Stitch project 15220382042260412057. Tokens live in `src/styles.css`.

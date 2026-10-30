@@ -110,6 +110,9 @@ export type SessionDetail = SessionRecord & {
   audio_bytes: number;
 };
 
+export type Access = "granted" | "denied" | "undetermined" | "unknown";
+export type Permissions = { mic: Access; system: Access };
+
 export type StorageUsage = { audio_bytes: number; sessions_with_audio: number };
 
 /** A session as a library card shows it. */
@@ -172,6 +175,9 @@ export const ipc = {
   deleteSessionAudio: (id: string) => invoke<void>("delete_session_audio", { id }),
   storageUsage: () => invoke<StorageUsage>("storage_usage"),
   syncVault: () => invoke<number>("sync_vault"),
+  permissions: () => invoke<Permissions>("permissions"),
+  openPrivacySettings: (source: "mic" | "system") =>
+    invoke<void>("open_privacy_settings", { source }),
   listSessions: (folder: string | null) => invoke<SessionCard[]>("list_sessions", { folder }),
   getSession: (id: string) => invoke<SessionDetail>("get_session", { id }),
   search: (query: string) => invoke<SearchHit[]>("search", { query }),
