@@ -34,6 +34,7 @@ fn app_info(settings: State<settings::SettingsState>) -> AppInfo {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(recording::RecordingState::default())
         .manage(speakers::SpeakersState::default())
@@ -69,6 +70,7 @@ pub fn run() {
             app_info,
             settings::get_settings,
             settings::update_settings,
+            settings::pick_vault_folder,
             library::list_folders,
             library::create_folder,
             library::list_sessions,

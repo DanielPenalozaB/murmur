@@ -190,6 +190,8 @@ export function install() {
         return cards;
       case "get_session":
         return detail;
+      case "pick_vault_folder":
+        return "/Users/me/Obsidian/Murmur";
       case "storage_usage":
         return { audio_bytes: 2_810_000_000, sessions_with_audio: 23 };
       case "list_voices":

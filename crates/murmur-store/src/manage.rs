@@ -192,6 +192,68 @@ fn has_files(dir: &Path) -> Result<bool, StoreError> {
     Ok(false)
 }
 
+/// Moves the vault: every session file and notebook folder goes to the same place
+/// under `to`. Other files in the old vault (an Obsidian vault's notes, say) stay, and
+/// so does the old folder. Returns how many session files moved.
+pub fn move_vault(index: &Index, from: &Path, to: &Path) -> Result<usize, StoreError> {
+    if !to.is_absolute() {
+        return Err(StoreError::InvalidVault(to.display().to_string()));
+    }
+    if to == from {
+        return Ok(0);
+    }
+    // One inside the other would move files into themselves or leave them half-listed.
+    if to.starts_with(from) || from.starts_with(to) {
+        return Err(StoreError::InvalidVault(to.display().to_string()));
+    }
+    std::fs::create_dir_all(to)?;
+    if from.is_dir() {
+        for folder in crate::list_folders(from)?.iter().flat_map(flatten) {
+            std::fs::create_dir_all(to.join(folder))?;
+        }
+    }
+    let mut moved = 0;
+    for record in index.list_sessions(None)? {
+        let old = Path::new(&record.file_path);
+        // Files moved out of the vault by hand, or already gone, stay as they are;
+        // `sync_vault` looks for the missing ones in the new vault.
+        let Ok(rest) = old.strip_prefix(from) else {
+            continue;
+        };
+        if !old.exists() {
+            continue;
+        }
+        let dir = to.join(rest.parent().unwrap_or(Path::new("")));
+        std::fs::create_dir_all(&dir)?;
+        let name = rest.file_name().and_then(|n| n.to_str()).unwrap_or("session.md");
+        let target = free_path(&dir, name);
+        move_file(old, &target)?;
+        index.relocate_session(
+            &record.session.id,
+            &record.session.title,
+            &record.session.folder,
+            &target.to_string_lossy(),
+        )?;
+        moved += 1;
+    }
+    Ok(moved)
+}
+
+fn flatten(node: &crate::FolderNode) -> Vec<String> {
+    std::iter::once(node.path.clone())
+        .chain(node.children.iter().flat_map(flatten))
+        .collect()
+}
+
+/// A rename, or a copy when the new vault is on another disk.
+fn move_file(from: &Path, to: &Path) -> Result<(), StoreError> {
+    if std::fs::rename(from, to).is_err() {
+        std::fs::copy(from, to)?;
+        std::fs::remove_file(from)?;
+    }
+    Ok(())
+}
+
 /// Points the index at session files moved or renamed outside Murmur (in Finder,
 /// Obsidian…). Markdown files are recognized by the session id in their frontmatter,
 /// plain text by their file name. Returns how many sessions were found elsewhere.
@@ -486,6 +548,42 @@ mod tests {
         assert_eq!(record(&index, "b").0.folder, "Team");
         assert_eq!(index.get_session("c").unwrap().unwrap().0.session.folder, "Work");
         assert_eq!(sync_vault(&index, v).unwrap(), 0);
+    }
+
+    #[test]
+    fn moves_the_vault() {
+        let root = tempfile::tempdir().unwrap();
+        let (old, new) = (root.path().join("Old"), root.path().join("Obsidian/Murmur"));
+        let mut index = Index::open_in_memory().unwrap();
+        add(
+            &mut index,
+            &old,
+            &session("a", "One", "Work/1-1s", ExportFormat::Markdown),
+        );
+        add(&mut index, &old, &session("b", "Two", "", ExportFormat::Txt));
+        crate::create_folder(&old, "Empty").unwrap();
+        std::fs::write(old.join("Work/mine.md"), "not a session").unwrap();
+        // The new vault already has a file by that name.
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(new.join("2026-10-12 Two.txt"), "someone else's").unwrap();
+
+        assert_eq!(move_vault(&index, &old, &new).unwrap(), 2);
+        let (a, _) = index.get_session("a").unwrap().unwrap();
+        assert_eq!(Path::new(&a.file_path), new.join("Work/1-1s/2026-10-12 One.md"));
+        assert_eq!(a.session.folder, "Work/1-1s");
+        assert!(Path::new(&a.file_path).exists());
+        let (b, _) = index.get_session("b").unwrap().unwrap();
+        assert_eq!(Path::new(&b.file_path), new.join("2026-10-12 Two 2.txt"));
+        assert_eq!(
+            std::fs::read_to_string(new.join("2026-10-12 Two.txt")).unwrap(),
+            "someone else's"
+        );
+        assert!(new.join("Empty").is_dir());
+        assert!(old.join("Work/mine.md").exists(), "the user's own files stay");
+
+        assert!(move_vault(&index, &new, &new.join("inside")).is_err());
+        assert!(move_vault(&index, &new, Path::new("relative")).is_err());
+        assert_eq!(move_vault(&index, &new, &new).unwrap(), 0);
     }
 
     #[test]

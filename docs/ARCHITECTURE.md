@@ -116,4 +116,5 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
      so closing the window only hides it and Murmur keeps running in the menu bar.
    - Library management: rename, move and delete sessions (the session page's ⋯ menu) and folders (the folder page). The vault file moves first, with its header updated, and the index follows; a file is never overwritten. Folders are deleted only when they hold no sessions and none of the user's own files.
    - Files moved or renamed in Finder are found again at launch and whenever the window comes to the front: Markdown by the `session:` id in its frontmatter, plain text by file name.
+   - The vault folder is chosen with Finder's picker (dialog plugin, called from Rust). Applying a new one moves each session file and notebook folder to the same place there, never overwriting; the user's other files stay in the old folder. It's refused while recording or re-transcribing.
    - Deleting a session's audio keeps the transcript and notes; such a session can't be re-transcribed. Settings shows how much space recordings take.
