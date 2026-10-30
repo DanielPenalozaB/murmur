@@ -367,6 +367,38 @@ impl Index {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Sessions in `folder` and its subfolders.
+    pub fn sessions_under(&self, folder: &str) -> Result<Vec<SessionRecord>, StoreError> {
+        // A prefix compare rather than LIKE, which would treat `_` and `%` in names
+        // as wildcards.
+        let mut stmt = self.db.prepare(
+            "SELECT id, title, folder, started_at, duration_ms, format, file_path FROM sessions
+             WHERE folder = ?1 OR substr(folder, 1, length(?1) + 1) = ?1 || '/'",
+        )?;
+        let rows = stmt.query_map([folder], row_to_record)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn relocate_session(
+        &self,
+        id: &str,
+        title: &str,
+        folder: &str,
+        file_path: &str,
+    ) -> Result<(), StoreError> {
+        self.db.execute(
+            "UPDATE sessions SET title = ?2, folder = ?3, file_path = ?4 WHERE id = ?1",
+            params![id, title, folder, file_path],
+        )?;
+        Ok(())
+    }
+
+    /// Removes a session with its transcript and speakers. Remembered voices stay.
+    pub fn delete_session(&self, id: &str) -> Result<(), StoreError> {
+        self.db.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
     /// Sessions newest first with what a library card shows.
     pub fn session_cards(&self, folder: Option<&str>) -> Result<Vec<SessionCard>, StoreError> {
         let records = self.list_sessions(folder)?;

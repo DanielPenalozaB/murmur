@@ -1,5 +1,6 @@
 mod assistant;
 mod library;
+mod manage;
 mod models;
 mod recording;
 mod retranscribe;
@@ -53,6 +54,13 @@ pub fn run() {
             library::get_session,
             library::search,
             library::open_session_item,
+            manage::rename_session,
+            manage::move_session,
+            manage::delete_session,
+            manage::delete_session_audio,
+            manage::move_folder,
+            manage::delete_folder,
+            manage::storage_usage,
             recording::start_recording,
             recording::set_recording_paused,
             recording::set_mic_muted,
