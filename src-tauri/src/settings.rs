@@ -24,6 +24,8 @@ pub struct Settings {
     /// Names and terms hinted to Whisper so it spells them right (people, products,
     /// ticket prefixes). Remembered speakers' names are added automatically.
     pub vocabulary: Vec<String>,
+    /// Offer to record when a calling app starts using the microphone.
+    pub detect_meetings: bool,
 }
 
 impl Default for Settings {
@@ -37,6 +39,7 @@ impl Default for Settings {
             llm: Provider::default(),
             auto_notes: true,
             vocabulary: Vec::new(),
+            detect_meetings: true,
         }
     }
 }

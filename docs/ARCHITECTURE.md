@@ -101,3 +101,16 @@ Tauri. That keeps the hard parts (audio, STT, prompts) unit-testable with `cargo
    - Live drafts: the base model transcribes the utterance in progress every 1.5 s; the final turbo line replaces it.
    - UI rebuilt from the Google Stitch screens (live session, post-meeting notes, library, search, speaker directory, preferences, new session sheet).
 6. **Polish:** meeting auto-detect, menu-bar recorder, signing + notarization, auto-update.
+   - Meeting auto-detect: `audiocap --watch-mic` reports the bundle IDs of processes using
+     audio input (Core Audio process objects, no mic permission needed). Once a calling app
+     (Teams, Slack, Zoom, FaceTime, Webex, Discord) or a browser has held the mic for 3 s,
+     Murmur offers to record: a banner in the window, or, when Murmur is in the background,
+     a small always-on-top card (transparent window, hence `macOSPrivateApi`) whose Record
+     brings the window forward with the New session dialog. Once per call; never while
+     recording.
+   - When a detected call ends (mic released for 5 s) while Murmur is recording, the same
+     card or banner offers to stop.
+   - Menu-bar recorder: a template icon drawn in code with the elapsed time beside it; Start
+     (last folder, format and languages, titled after a detected call), Pause, mic off/on and
+     Stop. Menu actions are emitted to the main webview, which runs them like its own buttons,
+     so closing the window only hides it and Murmur keeps running in the menu bar.

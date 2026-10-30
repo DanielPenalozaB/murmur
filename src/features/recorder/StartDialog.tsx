@@ -20,15 +20,16 @@ export function languageHint(count: number) {
   return "Murmur follows switches between these languages.";
 }
 
-function defaultTitle() {
-  const now = new Date();
-  return `Meeting ${now.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+export function defaultTitle(name = "Meeting", now = new Date()) {
+  return `${name} ${now.toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
 }
 
 export function StartDialog({
+  initialTitle,
   onStart,
   onCancel,
 }: {
+  initialTitle?: string | null;
   onStart: (session: NewSession) => void;
   onCancel: () => void;
 }) {
@@ -36,7 +37,7 @@ export function StartDialog({
   const folders = useQuery({ queryKey: ["folders"], queryFn: ipc.listFolders });
   const info = useQuery({ queryKey: ["app-info"], queryFn: ipc.appInfo });
   const go = useNav((s) => s.go);
-  const [title, setTitle] = useState(defaultTitle);
+  const [title, setTitle] = useState(() => initialTitle ?? defaultTitle());
   const [folder, setFolder] = useState<string | null>(null);
   const [format, setFormat] = useState<ExportFormat | null>(null);
   const [languages, setLanguages] = useState<string[] | null>(null);
