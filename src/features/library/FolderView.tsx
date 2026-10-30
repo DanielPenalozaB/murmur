@@ -14,6 +14,7 @@ import { formatDate, formatDuration, formatRelative, ipc, type SessionCard } fro
 import { useNav } from "../../lib/nav";
 import { Markdown } from "../assistant/Markdown";
 import { actionItems, parseSections } from "../assistant/notes";
+import { FolderActions } from "./manage";
 
 function Card({
   card,
@@ -187,9 +188,14 @@ export function FolderView({ folder }: { folder: string | null }) {
             title={name}
             subtitle={`${cards.length} ${cards.length === 1 ? "session" : "sessions"} stored on this Mac.`}
           >
-            <span className="chip gap-1.5 bg-local-soft py-1 text-on-local-soft">
-              <Lock className="size-3" /> 100% local
-            </span>
+            <div className="flex items-center gap-1">
+              {folder && sessions.isSuccess && (
+                <FolderActions folder={folder} sessions={cards.length} />
+              )}
+              <span className="chip ml-2 gap-1.5 bg-local-soft py-1 text-on-local-soft">
+                <Lock className="size-3" /> 100% local
+              </span>
+            </div>
           </PageHeader>
 
           {sessions.error && <p className="text-accent">{String(sessions.error)}</p>}

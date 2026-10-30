@@ -25,6 +25,7 @@ import {
   SpeakerChip,
   TranscriptTurns,
 } from "../transcript/TranscriptTurns";
+import { SessionMenu } from "./manage";
 import { RetranscribeDialog } from "./RetranscribeDialog";
 import { progressPercent, useRetranscribe } from "./retranscribe";
 
@@ -228,8 +229,12 @@ export function SessionView({ id }: { id: string }) {
             <button
               type="button"
               className="btn-quiet"
-              title="Transcribe this session again"
-              disabled={running}
+              title={
+                s.audio_bytes > 0
+                  ? "Transcribe this session again"
+                  : "The recordings were deleted, so it can't be transcribed again"
+              }
+              disabled={running || s.audio_bytes === 0}
               onClick={() => setRetranscribing(true)}
             >
               <RotateCcw className={`size-4 ${running ? "animate-spin" : ""}`} />
@@ -254,10 +259,12 @@ export function SessionView({ id }: { id: string }) {
               type="button"
               className="btn-quiet"
               title="Show audio"
+              disabled={s.audio_bytes === 0}
               onClick={() => ipc.openSessionItem(id, "reveal_audio")}
             >
               <AudioLines className="size-4" />
             </button>
+            <SessionMenu session={s} busy={running} />
           </>
         )}
       </TopBar>
