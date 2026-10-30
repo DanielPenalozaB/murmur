@@ -1,5 +1,6 @@
 mod assistant;
 mod library;
+mod meeting;
 mod models;
 mod recording;
 mod retranscribe;
@@ -36,12 +37,20 @@ pub fn run() {
         .manage(speakers::SpeakersState::default())
         .manage(retranscribe::RetranscribeState::default())
         .manage(models::DownloadState::default())
+        .manage(meeting::MeetingState::default())
         .setup(|app| {
             let handle = app.handle();
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
             app.manage(library::LibraryState(Mutex::new(library::open_index(handle)?)));
             recording::preload_model(handle);
+            meeting::watch(handle);
             Ok(())
+        })
+        // Back in Murmur, the in-app banner takes over from the floating card.
+        .on_window_event(|window, event| {
+            if window.label() == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
+                meeting::close_popup(window.app_handle());
+            }
         })
         .invoke_handler(tauri::generate_handler![
             app_info,
@@ -72,6 +81,9 @@ pub fn run() {
             speakers::sessions_with_speaker,
             models::missing_models,
             models::download_models,
+            meeting::detected_meeting,
+            meeting::dismiss_meeting,
+            meeting::record_meeting,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

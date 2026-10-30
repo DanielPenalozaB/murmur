@@ -4,6 +4,7 @@ import { SearchView } from "./features/library/SearchView";
 import { SessionView } from "./features/library/SessionView";
 import { Sidebar } from "./features/library/Sidebar";
 import { LiveView } from "./features/recorder/LiveView";
+import { MeetingBanner } from "./features/recorder/MeetingBanner";
 import { useRecorder } from "./features/recorder/useRecorder";
 import { SettingsView } from "./features/settings/SettingsView";
 import { ModelSetup } from "./features/setup/ModelSetup";
@@ -22,6 +23,7 @@ export default function App() {
     <div className="grid h-screen grid-cols-[264px_1fr]">
       <Sidebar recording={status !== null} />
       <main className="flex min-h-0 min-w-0 flex-col">
+        <MeetingBanner recording={status !== null} />
         {setup && <ModelSetup missing={missing.data ?? []} />}
         {view.kind === "live" && !setup && <LiveView />}
         {view.kind === "folder" && <FolderView key={String(view.folder)} folder={view.folder} />}

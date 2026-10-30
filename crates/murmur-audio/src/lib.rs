@@ -5,11 +5,13 @@
 //! writes 16 kHz mono f32 PCM to stdout. See ADR-002.
 
 mod helper;
+mod meeting;
 mod normalize;
 mod recorder;
 mod vad;
 
 pub use helper::HelperProcess;
+pub use meeting::{MeetingApp, MeetingDetector, MeetingEvent, MicWatcher, SETTLE, meeting_app};
 pub use normalize::{normalize_wav, read_wav};
 pub use recorder::{ChunkSenders, DRAFT_EVERY_MS, Recorder, RecorderStatus, Recording, TrackFile};
 pub use vad::{Segmenter, SegmenterConfig, VoiceScorer, speech_chunks};

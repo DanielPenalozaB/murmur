@@ -118,7 +118,7 @@ export function LiveView() {
   const t = useTranscript();
   const notesJob = useNotes((s) => (t.saved ? s.jobs[t.saved.id] : undefined));
   const go = useNav((s) => s.go);
-  const { startOpen, setStartOpen } = useUi();
+  const { startOpen, startTitle, setStartOpen } = useUi();
   const settings = useQuery({ queryKey: ["settings"], queryFn: ipc.getSettings });
   const [seek, setSeek] = useState<Seek | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
@@ -344,6 +344,7 @@ export function LiveView() {
 
       {startOpen && (
         <StartDialog
+          initialTitle={startTitle}
           onCancel={() => setStartOpen(false)}
           onStart={(session) => {
             setStartOpen(false);

@@ -87,7 +87,7 @@ pub enum TranscriptEvent {
 }
 
 /// The `audiocap` sidecar sits next to the app binary (Tauri copies `externalBin` there).
-fn helper_path() -> Result<PathBuf, String> {
+pub(crate) fn helper_path() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     Ok(exe.with_file_name("audiocap"))
 }

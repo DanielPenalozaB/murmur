@@ -58,6 +58,12 @@ body {
   user-select: none;
 }
 
+/* The floating meeting card's window is transparent around its rounded corners. */
+html.popup,
+html.popup body {
+  background: transparent;
+}
+
 @layer components {
   .btn-primary {
     @apply inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-[13px] font-semibold text-on-accent shadow-sm hover:opacity-90 disabled:opacity-50;
