@@ -1,6 +1,6 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|library|session|retranscribing|search|speakers|settings`.
+// `?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|library|session|retranscribing|search|speakers|settings|update`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
@@ -208,6 +208,17 @@ export function install() {
           { name: "Lena Fischer", meetings: 3, last_seen: iso(2, 14, 0) },
           { name: "Omar Haddad", meetings: 2, last_seen: iso(6, 9, 30) },
         ];
+      case "plugin:updater|check":
+        return view === "update"
+          ? {
+              rid: 1,
+              currentVersion: "0.2.0",
+              version: "0.3.0",
+              date: iso(0, 9, 0),
+              body: "## What's changed\n- Collapse the meeting card and stop asking for chosen apps\n- Show the app in the README\n- Update Murmur from inside the app",
+              rawJson: {},
+            }
+          : null;
       // Off unless `&review` is in the URL: a tidy library has nothing to review, and
       // that's how the README shows the directory.
       case "speaker_review": {
@@ -325,6 +336,7 @@ export function install() {
     permissions: { kind: "live" },
     meeting: { kind: "folder", folder: null },
     library: { kind: "folder", folder: null },
+    update: { kind: "folder", folder: null },
     session: { kind: "session", id: record.id },
     retranscribing: { kind: "session", id: record.id },
     search: { kind: "search", query: "rollback" },

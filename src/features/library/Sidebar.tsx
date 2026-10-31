@@ -14,6 +14,7 @@ import { LogoMark } from "../../components/ui";
 import { type FolderNode, ipc } from "../../lib/ipc";
 import { useNav, useUi } from "../../lib/nav";
 import { useSpeakerReview } from "../speakers/SpeakerReview";
+import { UpdateCard } from "../updates/UpdateCard";
 
 function Item({
   icon,
@@ -233,6 +234,7 @@ export function Sidebar({ recording }: { recording: boolean }) {
         />
       </nav>
 
+      <UpdateCard recording={recording} />
       <div className="mb-2 flex flex-col gap-2 rounded-xl bg-muted p-3 text-xs">
         <div className="flex items-center justify-between">
           <span className="eyebrow">Indexed vault</span>

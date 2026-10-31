@@ -86,6 +86,13 @@ speakers still under it (`Index::rebuild_voice`), since `remember_voice` only av
 in. Correcting a name leaves the notes alone; only a "Speaker N" is replaced there.
 "Looks right" stores the finding's key in `review_dismissed`.
 
+## Updates
+
+The Tauri updater plugin reads `latest.json` from the latest GitHub release, checks the
+update's signature against `plugins.updater.pubkey`, replaces the app and relaunches
+(`src/features/updates`). Release builds are signed with a stable self-signed identity so
+macOS keeps the app's permissions across updates; see [RELEASING.md](RELEASING.md).
+
 ## Problem log
 
 Warnings, errors and panics are appended to `~/Library/Logs/dev.murmur.app/murmur.log`

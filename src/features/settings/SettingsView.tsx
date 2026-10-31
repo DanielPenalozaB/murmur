@@ -1,9 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
   AudioLines,
   BellOff,
   Cloud,
   Cpu,
+  Download,
   FileText,
   FolderOpen,
   KeyRound,
@@ -20,6 +22,8 @@ import { PageHeader, Toggle, TopBar } from "../../components/ui";
 import { formatBytes, ipc, type Provider, type Settings } from "../../lib/ipc";
 import { folderCrumbs } from "../../lib/nav";
 import { languageHint } from "../recorder/StartDialog";
+import { useRecorder } from "../recorder/useRecorder";
+import { installLabel, useInstall } from "../updates/updates";
 import { parseVocabulary } from "./vocabulary";
 
 type Kind = Provider["kind"];
@@ -118,6 +122,65 @@ function Row({
       </div>
       {children}
     </div>
+  );
+}
+
+/** The running version, a manual check, and the install button when one is out. */
+function UpdatesRow() {
+  const info = useQuery({ queryKey: ["app-info"], queryFn: ipc.appInfo });
+  const recording = useRecorder().status !== null;
+  const queryClient = useQueryClient();
+  const { phase, install } = useInstall();
+  const [result, setResult] = useState<{ update: Update | null } | { error: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const busy = phase.status === "downloading" || phase.status === "restarting";
+
+  const checkNow = async () => {
+    setChecking(true);
+    try {
+      const update = await check();
+      setResult({ update });
+      queryClient.setQueryData(["update"], update);
+    } catch (e) {
+      setResult({ error: String(e) });
+    } finally {
+      setChecking(false);
+    }
+  };
+  const update = result && "update" in result ? result.update : null;
+
+  return (
+    <Row
+      icon={<Download className="size-4" />}
+      title={`Murmur ${info.data?.version ?? ""}`}
+      detail={
+        phase.status === "failed"
+          ? `The update failed: ${phase.message}`
+          : result === null
+            ? "Murmur checks when it starts and every few hours."
+            : "error" in result
+              ? `Couldn't check: ${result.error}`
+              : update
+                ? `Version ${update.version} is available.`
+                : "You have the latest version."
+      }
+    >
+      {update ? (
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={busy || recording}
+          title={recording ? "Available once the recording ends" : undefined}
+          onClick={() => void install(update)}
+        >
+          {recording ? "After the recording" : installLabel(phase)}
+        </button>
+      ) : (
+        <button type="button" className="btn-ghost" disabled={checking} onClick={checkNow}>
+          {checking ? "Checking…" : "Check for updates"}
+        </button>
+      )}
+    </Row>
   );
 }
 
@@ -559,6 +622,14 @@ export function SettingsView() {
                 </p>
               </div>
             )}
+          </Stage>
+
+          <Stage
+            n={4}
+            title="Updates"
+            description="New versions come from Murmur's GitHub releases. Each one is checked against Murmur's signing key before it's installed."
+          >
+            <UpdatesRow />
           </Stage>
         </div>
       </div>

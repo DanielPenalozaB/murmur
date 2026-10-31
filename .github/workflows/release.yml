@@ -1,7 +1,14 @@
 name: Release
 # A v* tag (matching the version in tauri.conf.json) builds Murmur.app and publishes
-# a GitHub Release with a .dmg and a .zip. Pull requests that change packaging, and
-# manual runs, build the same files as a workflow artifact without publishing.
+# a GitHub Release with a .dmg, a .zip, and the signed update the app installs itself
+# (described by latest.json). Pull requests that change packaging, and manual runs,
+# build the same files as a workflow artifact without publishing.
+#
+# Secrets (see docs/RELEASING.md): MACOS_CERTIFICATE and MACOS_CERTIFICATE_PASSWORD
+# sign the app with the same self-signed identity every release, so macOS keeps its
+# microphone and system-audio permissions across updates; TAURI_SIGNING_PRIVATE_KEY
+# and TAURI_SIGNING_PRIVATE_KEY_PASSWORD sign the update for the in-app updater.
+# Without them (pull requests from forks) the build is ad-hoc signed and has no update.
 on:
   push:
     tags: ["v*"]
@@ -31,8 +38,47 @@ jobs:
           version=$(sed -n 's/^ *"version": "\(.*\)",$/\1/p' src-tauri/tauri.conf.json | head -1)
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but tauri.conf.json says $version"; exit 1; }
       - uses: ./.github/actions/setup
+      - name: Check the signing secrets
+        id: secrets
+        run: |
+          echo "sign=${{ secrets.MACOS_CERTIFICATE != '' }}" >> "$GITHUB_OUTPUT"
+          echo "update=${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}" >> "$GITHUB_OUTPUT"
+      - name: Releases must be signed and updatable
+        if: startsWith(github.ref, 'refs/tags/') && (steps.secrets.outputs.sign != 'true' || steps.secrets.outputs.update != 'true')
+        run: |
+          echo "a release needs MACOS_CERTIFICATE and TAURI_SIGNING_PRIVATE_KEY (see docs/RELEASING.md)"
+          exit 1
+      - name: Import the signing certificate
+        if: steps.secrets.outputs.sign == 'true'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/murmur-signing.keychain-db"
+          password=$(openssl rand -base64 24)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" >/dev/null
+          # codesign only finds identities in the search list. The certificate is
+          # self-signed, so it's never "valid" to macOS, but codesign uses it by name.
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
       - name: Build the app
-        run: pnpm tauri build --bundles app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          config='{}'
+          if [ "${{ steps.secrets.outputs.sign }}" = true ]; then
+            config=$(echo "$config" | jq '.bundle.macOS.signingIdentity = "Murmur Self-Signed"')
+          fi
+          if [ "${{ steps.secrets.outputs.update }}" = true ]; then
+            config=$(echo "$config" | jq '.bundle.createUpdaterArtifacts = true')
+          fi
+          pnpm tauri build --bundles app --config "$config"
       - name: Package .dmg and .zip
         run: ./scripts/package-release.sh
       - uses: actions/upload-artifact@v4
@@ -59,3 +105,20 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "Murmur $GITHUB_REF_NAME" --generate-notes
+      # The app reads releases/latest/download/latest.json to find updates; its notes
+      # are the release's generated notes.
+      - name: Publish latest.json for the in-app updater
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          update=$(cd dist && ls *.app.tar.gz)
+          notes=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json body -q .body)
+          jq -n \
+            --arg version "${GITHUB_REF_NAME#v}" \
+            --arg notes "$notes" \
+            --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg signature "$(cat "dist/$update.sig")" \
+            --arg url "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/$update" \
+            '{version: $version, notes: $notes, pub_date: $date,
+              platforms: {"darwin-aarch64": {signature: $signature, url: $url}}}' > latest.json
+          gh release upload "$GITHUB_REF_NAME" latest.json --repo "$GITHUB_REPOSITORY"
