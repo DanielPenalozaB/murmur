@@ -139,14 +139,19 @@ fn strip_code_fence(text: &str) -> &str {
 pub fn save_notes(app: AppHandle, session_id: String, notes: String) -> Result<(), String> {
     let library = app.state::<LibraryState>();
     let index = library.0.lock().unwrap();
+    write_notes(&index, &session_id, &notes)
+}
+
+/// Replaces a session's notes in its file and in the index.
+pub(crate) fn write_notes(index: &murmur_store::Index, session_id: &str, notes: &str) -> Result<(), String> {
     let (record, _) = index
-        .get_session(&session_id)
+        .get_session(session_id)
         .map_err(|e| e.to_string())?
         .ok_or("session not found")?;
     let format: ExportFormat = record.session.format;
-    murmur_store::write_notes(std::path::Path::new(&record.file_path), format, &notes)
+    murmur_store::write_notes(std::path::Path::new(&record.file_path), format, notes)
         .map_err(|e| format!("could not update {}: {e}", record.file_path))?;
-    index.set_notes(&session_id, &notes).map_err(|e| e.to_string())
+    index.set_notes(session_id, notes).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

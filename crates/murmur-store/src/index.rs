@@ -539,6 +539,23 @@ impl Index {
         Ok(())
     }
 
+    /// Sessions whose notes have task-list items, newest first, with those notes.
+    pub fn sessions_with_tasks(&self) -> Result<Vec<(SessionRecord, String)>, StoreError> {
+        let mut stmt = self.db.prepare(
+            "SELECT id, title, folder, started_at, duration_ms, format, file_path, notes FROM sessions
+             WHERE notes LIKE '%[ ]%' OR notes LIKE '%[x]%' ORDER BY started_at DESC",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((row_to_record(r)?, r.get::<_, String>(7)?)))?;
+        let mut found = Vec::new();
+        for row in rows {
+            let (record, notes) = row?;
+            if crate::count_actions(&notes) != (0, 0) {
+                found.push((record, notes));
+            }
+        }
+        Ok(found)
+    }
+
     /// Sessions newest first with what a library card shows.
     pub fn session_cards(&self, folder: Option<&str>) -> Result<Vec<SessionCard>, StoreError> {
         let records = self.list_sessions(folder)?;
@@ -971,6 +988,17 @@ mod tests {
 
         idx.forget_voice("Ana").unwrap();
         assert!(idx.voices().unwrap().is_empty());
+    }
+
+    #[test]
+    fn finds_the_sessions_with_tasks() {
+        let idx = index();
+        idx.set_notes("a", "## Action items\n- [ ] Ana: plan").unwrap();
+        idx.set_notes("b", "## Summary\n- [link] [00:01]").unwrap();
+        let found = idx.sessions_with_tasks().unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0.session.id, "a");
+        assert!(found[0].1.contains("Ana: plan"));
     }
 
     #[test]

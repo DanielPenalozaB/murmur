@@ -7,7 +7,16 @@ const round =
   "flex size-8 shrink-0 items-center justify-center rounded-full text-ink-soft hover:bg-muted hover:text-ink";
 
 /** The session's recording under the notes and transcript: play, skip, scrub, speed. */
-export function AudioPlayer({ sessionId, durationMs }: { sessionId: string; durationMs: number }) {
+export function AudioPlayer({
+  sessionId,
+  durationMs,
+  compact,
+}: {
+  sessionId: string;
+  durationMs: number;
+  /** For narrow panels: no skip buttons, so the scrubber keeps its room. */
+  compact?: boolean;
+}) {
   const { playing, position, duration, rate, error } = usePlayer();
   const { load, unload, play, pause, seek, setRate } = usePlayer.getState();
 
@@ -36,22 +45,26 @@ export function AudioPlayer({ sessionId, durationMs }: { sessionId: string; dura
             <Play className="ml-0.5 size-3.5 fill-current" />
           )}
         </button>
-        <button
-          type="button"
-          className={round}
-          title="Back 15 seconds"
-          onClick={() => jump(-15_000)}
-        >
-          <RotateCcw className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className={round}
-          title="Forward 15 seconds"
-          onClick={() => jump(15_000)}
-        >
-          <RotateCw className="size-3.5" />
-        </button>
+        {!compact && (
+          <>
+            <button
+              type="button"
+              className={round}
+              title="Back 15 seconds"
+              onClick={() => jump(-15_000)}
+            >
+              <RotateCcw className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              className={round}
+              title="Forward 15 seconds"
+              onClick={() => jump(15_000)}
+            >
+              <RotateCw className="size-3.5" />
+            </button>
+          </>
+        )}
         <span className="w-12 shrink-0 text-right tabular-nums">{formatTimestamp(position)}</span>
         <input
           type="range"

@@ -32,6 +32,9 @@ pub struct Settings {
     pub detect_meetings: bool,
     /// Calling apps (as named in the offer, e.g. "Slack") never offered for.
     pub ignored_meeting_apps: Vec<String>,
+    /// How people call the user in meetings, so action items given to that name
+    /// count as theirs (notes otherwise say "Me").
+    pub user_name: String,
 }
 
 impl Default for Settings {
@@ -47,6 +50,7 @@ impl Default for Settings {
             vocabulary: Vec::new(),
             detect_meetings: true,
             ignored_meeting_apps: Vec::new(),
+            user_name: String::new(),
         }
     }
 }

@@ -39,6 +39,8 @@ export type Settings = {
   detect_meetings: boolean;
   /** Calling apps never offered for, as named in the offer. */
   ignored_meeting_apps: string[];
+  /** How people call the user in meetings; action items for that name are theirs. */
+  user_name: string;
 };
 
 export type TrayAction = "start" | "pause" | "resume" | "mic-off" | "mic-on" | "stop";
@@ -116,6 +118,9 @@ export type Access = "granted" | "denied" | "undetermined" | "unknown";
 export type Permissions = { mic: Access; system: Access };
 
 export type StorageUsage = { audio_bytes: number; sessions_with_audio: number };
+
+/** A meeting whose notes have action items. */
+export type TaskNotes = SessionRecord & { notes: string; has_audio: boolean };
 
 /** A session as a library card shows it. */
 export type SessionCard = SessionRecord & {
@@ -227,6 +232,9 @@ export const ipc = {
   generateNotes: (sessionId: string, userNotes: string, onEvent: (event: StreamEvent) => void) =>
     invoke<void>("generate_notes", { sessionId, userNotes, onEvent: streamChannel(onEvent) }),
   saveNotes: (sessionId: string, notes: string) => invoke<void>("save_notes", { sessionId, notes }),
+  taskNotes: () => invoke<TaskNotes[]>("task_notes"),
+  setActionDone: (sessionId: string, line: number, done: boolean) =>
+    invoke<void>("set_action_done", { sessionId, line, done }),
   listModels: (provider: Provider) => invoke<ModelInfo[]>("list_models", { provider }),
   apiKeys: () => invoke<ApiKeys>("api_keys"),
   setApiKey: (name: "anthropic" | "gemini", key: string | null) =>
