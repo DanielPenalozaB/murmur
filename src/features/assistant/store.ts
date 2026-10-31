@@ -84,6 +84,8 @@ export const useNotes = create<NotesState>((set) => {
           if (event.kind === "done") {
             update(sessionId, () => ({ status: "done", text: event.text }));
             queryClient.invalidateQueries({ queryKey: ["session", sessionId] });
+            queryClient.invalidateQueries({ queryKey: ["sessions"] });
+            queryClient.invalidateQueries({ queryKey: ["tasks"] });
           }
         })
         .catch((error) => update(sessionId, () => ({ status: "error", error: String(error) })));

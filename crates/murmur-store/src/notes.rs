@@ -26,6 +26,28 @@ pub fn count_actions(notes: &str) -> (u32, u32) {
     (open, done)
 }
 
+/// Ticks (or unticks) the task on `line` (0-based) and returns the new notes, or
+/// `None` when that line isn't a task, e.g. because the notes changed meanwhile.
+pub fn set_task(notes: &str, line: usize, done: bool) -> Option<String> {
+    let mut lines: Vec<&str> = notes.split('\n').collect();
+    let target = *lines.get(line)?;
+    let indent = target.len() - target.trim_start().len();
+    let item = target.trim_start();
+    let rest = item.strip_prefix("- ").or_else(|| item.strip_prefix("* "))?;
+    let text = rest
+        .strip_prefix("[ ]")
+        .or_else(|| rest.strip_prefix("[x]"))
+        .or_else(|| rest.strip_prefix("[X]"))?;
+    let ticked = format!(
+        "{}{}[{}]{text}",
+        &target[..indent],
+        &item[..2],
+        if done { 'x' } else { ' ' }
+    );
+    lines[line] = &ticked;
+    Some(lines.join("\n"))
+}
+
 /// The body of the `## <name>` section (case-insensitive), up to the next `## `.
 fn section<'a>(notes: &'a str, name: &str) -> Option<&'a str> {
     let mut offset = 0;
@@ -90,6 +112,21 @@ mod tests {
         assert_eq!(excerpt("Just a line [00:01]"), "Just a line");
         assert_eq!(excerpt(""), "");
         assert_eq!(excerpt("- see [docs] here"), "see [docs] here");
+    }
+
+    #[test]
+    fn ticks_a_task_and_leaves_the_rest() {
+        let notes = "## Action items\n- [ ] Ana: plan [00:10]\n  * [x] Bo: done\nText";
+        assert_eq!(
+            set_task(notes, 1, true).unwrap(),
+            "## Action items\n- [x] Ana: plan [00:10]\n  * [x] Bo: done\nText"
+        );
+        assert_eq!(
+            set_task(notes, 2, false).unwrap(),
+            "## Action items\n- [ ] Ana: plan [00:10]\n  * [ ] Bo: done\nText"
+        );
+        assert_eq!(set_task(notes, 3, true), None, "not a task");
+        assert_eq!(set_task(notes, 9, true), None, "past the end");
     }
 
     #[test]

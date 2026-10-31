@@ -13,7 +13,7 @@ export function useVaultSync() {
       try {
         if ((await ipc.syncVault()) > 0) {
           await Promise.all(
-            [["sessions"], ["folders"], ["session"]].map((queryKey) =>
+            [["sessions"], ["folders"], ["session"], ["tasks"]].map((queryKey) =>
               queryClient.invalidateQueries({ queryKey }),
             ),
           );
