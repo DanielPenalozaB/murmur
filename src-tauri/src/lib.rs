@@ -5,6 +5,7 @@ mod manage;
 mod meeting;
 mod models;
 mod permissions;
+mod playback;
 mod recording;
 mod retranscribe;
 mod settings;
@@ -40,6 +41,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .register_asynchronous_uri_scheme_protocol(playback::SCHEME, playback::handle)
         .manage(recording::RecordingState::default())
         .manage(speakers::SpeakersState::default())
         .manage(retranscribe::RetranscribeState::default())

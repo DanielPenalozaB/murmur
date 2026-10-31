@@ -24,6 +24,15 @@ export function groupIntoTurns(segments: Segment[], maxGapMs = 4000): Turn[] {
   return turns;
 }
 
+/** The turn being said at `ms`: the last one starting at or before it (−1 before the first). */
+export function turnAt(turns: Turn[], ms: number) {
+  let index = -1;
+  turns.forEach((turn, i) => {
+    if (turn.start <= ms) index = i;
+  });
+  return index;
+}
+
 /** Same rule as the Rust side: "Me", a speaker's name, "Speaker N", or "Them". */
 export function speakerLabel(
   channel: Channel,

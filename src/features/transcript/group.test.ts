@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Segment } from "../../lib/ipc";
-import { formatTimestamp, groupIntoTurns, speakerLabel } from "./group";
+import { formatTimestamp, groupIntoTurns, speakerLabel, turnAt } from "./group";
 
 const seg = (
   start: number,
@@ -56,5 +56,20 @@ describe("speakers", () => {
 describe("formatTimestamp", () => {
   it("formats minutes and seconds", () => {
     expect(formatTimestamp(65_400)).toBe("01:05");
+  });
+});
+
+describe("turnAt", () => {
+  const turns = groupIntoTurns([
+    seg(1000, 2000, "system", "a"),
+    seg(5000, 6000, "mic", "b"),
+    seg(9000, 9500, "system", "c"),
+  ]);
+
+  it("finds the turn being said at a moment", () => {
+    expect(turnAt(turns, 0)).toBe(-1);
+    expect(turnAt(turns, 1000)).toBe(0);
+    expect(turnAt(turns, 7000)).toBe(1);
+    expect(turnAt(turns, 60_000)).toBe(2);
   });
 });

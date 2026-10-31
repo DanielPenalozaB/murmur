@@ -21,6 +21,8 @@ import { Markdown } from "../assistant/Markdown";
 import { NotesDocument } from "../assistant/NotesDocument";
 import { actionItems, toggleAction } from "../assistant/notes";
 import { useNotes } from "../assistant/store";
+import { AudioPlayer } from "../player/AudioPlayer";
+import { usePlayer } from "../player/player";
 import { refreshSpeakers } from "../speakers/review";
 import {
   type Rename,
@@ -280,11 +282,16 @@ export function SessionView({ id }: { id: string }) {
   const job = useRetranscribe((st) => st.jobs[id]);
   const running = job?.status === "running";
   const s = session.data;
+  const playing = usePlayer((p) => p.playing);
+  const position = usePlayer((p) => p.position);
+  const canPlay = !!s && s.audio_bytes > 0;
 
   // Citations jump to the transcript tab, then scroll there once it renders.
+  // The player follows, so the moment is ready to hear.
   const onSeek = (ms: number) => {
     setTab("transcript");
     setSeek({ ms, nonce: Date.now() });
+    if (canPlay) usePlayer.getState().seek(ms);
   };
   const rename: Rename = async (speakerId, name) => {
     await ipc.renameSpeaker(id, speakerId, name);
@@ -349,125 +356,135 @@ export function SessionView({ id }: { id: string }) {
       </TopBar>
 
       <div className="grid min-h-0 flex-1 grid-cols-[1fr_380px] gap-6 px-8 pb-6">
-        <div className="min-h-0 overflow-y-auto pr-2 select-text">
-          <div className="mx-auto flex max-w-[720px] flex-col gap-6 pt-2">
-            {session.error && <p className="text-accent">{String(session.error)}</p>}
-            {s && (
-              <>
-                <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium">
-                  <span className="chip gap-1.5 bg-muted py-1">
-                    <Lock className="size-3" /> Local file · .
-                    {s.format === "markdown" ? "md" : "txt"}
-                  </span>
-                  <span className="text-outline">/</span>
-                  <span className="chip gap-1.5 bg-muted py-1">
-                    <AudioLines className="size-3" /> {formatDuration(s.duration_ms)} captured
-                  </span>
-                </div>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-soft">
-                    <button
-                      type="button"
-                      className="chip bg-local-soft uppercase tracking-wide text-on-local-soft"
-                      onClick={() => go({ kind: "folder", folder: s.folder })}
-                    >
-                      {s.folder || "Vault root"}
-                    </button>
-                    <span>•</span>
-                    <span>{formatDate(s.started_at)}</span>
-                    <span>•</span>
-                    <span>Transcribed locally</span>
+        <div className="flex min-h-0 flex-col gap-3">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-2 select-text">
+            <div className="mx-auto flex max-w-[720px] flex-col gap-6 pt-2">
+              {session.error && <p className="text-accent">{String(session.error)}</p>}
+              {s && (
+                <>
+                  <div className="flex flex-wrap items-center gap-2 text-[12px] font-medium">
+                    <span className="chip gap-1.5 bg-muted py-1">
+                      <Lock className="size-3" /> Local file · .
+                      {s.format === "markdown" ? "md" : "txt"}
+                    </span>
+                    <span className="text-outline">/</span>
+                    <span className="chip gap-1.5 bg-muted py-1">
+                      <AudioLines className="size-3" /> {formatDuration(s.duration_ms)} captured
+                    </span>
                   </div>
-                  <h1 className="mt-3 font-serif text-[40px] leading-[48px] tracking-[-0.02em]">
-                    {s.title}
-                  </h1>
-                </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-soft">
+                      <button
+                        type="button"
+                        className="chip bg-local-soft uppercase tracking-wide text-on-local-soft"
+                        onClick={() => go({ kind: "folder", folder: s.folder })}
+                      >
+                        {s.folder || "Vault root"}
+                      </button>
+                      <span>•</span>
+                      <span>{formatDate(s.started_at)}</span>
+                      <span>•</span>
+                      <span>Transcribed locally</span>
+                    </div>
+                    <h1 className="mt-3 font-serif text-[40px] leading-[48px] tracking-[-0.02em]">
+                      {s.title}
+                    </h1>
+                  </div>
 
-                {job && job.status !== "done" && (
-                  <div
-                    className={`rounded-xl px-4 py-3 text-[13px] ${job.status === "error" ? "bg-accent-soft text-on-accent-soft" : "bg-sidebar"}`}
-                  >
-                    {job.status === "error" ? (
-                      <p>Re-transcription failed: {job.error}</p>
-                    ) : (
-                      <>
-                        <p className="flex items-center justify-between gap-3">
-                          <span className="flex items-center gap-2">
-                            <RotateCcw className="size-3.5 animate-spin" /> Re-transcribing ·{" "}
-                            {job.message}
-                          </span>
-                          {job.total > 0 && (
-                            <span className="tabular-nums text-ink-soft">
-                              {progressPercent(job)}%
+                  {job && job.status !== "done" && (
+                    <div
+                      className={`rounded-xl px-4 py-3 text-[13px] ${job.status === "error" ? "bg-accent-soft text-on-accent-soft" : "bg-sidebar"}`}
+                    >
+                      {job.status === "error" ? (
+                        <p>Re-transcription failed: {job.error}</p>
+                      ) : (
+                        <>
+                          <p className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-2">
+                              <RotateCcw className="size-3.5 animate-spin" /> Re-transcribing ·{" "}
+                              {job.message}
                             </span>
-                          )}
-                        </p>
-                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-high">
-                          <div
-                            className="h-full bg-accent transition-[width]"
-                            style={{ width: `${progressPercent(job)}%` }}
-                          />
-                        </div>
-                      </>
+                            {job.total > 0 && (
+                              <span className="tabular-nums text-ink-soft">
+                                {progressPercent(job)}%
+                              </span>
+                            )}
+                          </p>
+                          <div className="mt-2 h-1 overflow-hidden rounded-full bg-high">
+                            <div
+                              className="h-full bg-accent transition-[width]"
+                              style={{ width: `${progressPercent(job)}%` }}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {job?.status === "done" && (
+                    <p className="text-[13px] text-local">
+                      Re-transcribed. {job.message} Regenerate the notes to match the new
+                      transcript.
+                    </p>
+                  )}
+
+                  <Attendees session={s} onRename={rename} onUnname={unname} onDecline={decline} />
+
+                  <div className="flex justify-center gap-2">
+                    {(["notes", "transcript"] as const).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setTab(t)}
+                        className={`rounded-lg px-3 py-1.5 text-[13px] font-medium ${
+                          tab === t ? "bg-ink text-canvas" : "bg-muted text-ink hover:bg-high"
+                        }`}
+                      >
+                        {t === "notes" ? "Notes" : "Transcript"}
+                      </button>
+                    ))}
+                    {actions.length > 0 && (
+                      <button
+                        type="button"
+                        className="rounded-lg bg-muted px-3 py-1.5 text-[13px] font-medium hover:bg-high"
+                        onClick={() => {
+                          setTab("notes");
+                          setTimeout(() =>
+                            document
+                              .getElementById("action-items")
+                              ?.scrollIntoView({ behavior: "smooth" }),
+                          );
+                        }}
+                      >
+                        Action items ({actions.length})
+                      </button>
                     )}
                   </div>
-                )}
-                {job?.status === "done" && (
-                  <p className="text-[13px] text-local">
-                    Re-transcribed. {job.message} Regenerate the notes to match the new transcript.
-                  </p>
-                )}
 
-                <Attendees session={s} onRename={rename} onUnname={unname} onDecline={decline} />
-
-                <div className="flex justify-center gap-2">
-                  {(["notes", "transcript"] as const).map((t) => (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => setTab(t)}
-                      className={`rounded-lg px-3 py-1.5 text-[13px] font-medium ${
-                        tab === t ? "bg-ink text-canvas" : "bg-muted text-ink hover:bg-high"
-                      }`}
-                    >
-                      {t === "notes" ? "Notes" : "Transcript"}
-                    </button>
-                  ))}
-                  {actions.length > 0 && (
-                    <button
-                      type="button"
-                      className="rounded-lg bg-muted px-3 py-1.5 text-[13px] font-medium hover:bg-high"
-                      onClick={() => {
-                        setTab("notes");
-                        setTimeout(() =>
-                          document
-                            .getElementById("action-items")
-                            ?.scrollIntoView({ behavior: "smooth" }),
-                        );
-                      }}
-                    >
-                      Action items ({actions.length})
-                    </button>
+                  {tab === "notes" ? (
+                    <NotesTab session={s} onSeek={onSeek} />
+                  ) : s.segments.length === 0 ? (
+                    <p className="text-ink-soft">No speech was transcribed in this session.</p>
+                  ) : (
+                    <div className="pb-10">
+                      <TranscriptTurns
+                        segments={s.segments}
+                        seek={seek}
+                        speakers={s.speakers}
+                        onRename={rename}
+                        onPlay={canPlay ? (ms) => usePlayer.getState().play(ms) : undefined}
+                        playingAt={canPlay && (playing || position > 0) ? position : null}
+                      />
+                    </div>
                   )}
-                </div>
-
-                {tab === "notes" ? (
-                  <NotesTab session={s} onSeek={onSeek} />
-                ) : s.segments.length === 0 ? (
-                  <p className="text-ink-soft">No speech was transcribed in this session.</p>
-                ) : (
-                  <div className="pb-10">
-                    <TranscriptTurns
-                      segments={s.segments}
-                      seek={seek}
-                      speakers={s.speakers}
-                      onRename={rename}
-                    />
-                  </div>
-                )}
-              </>
-            )}
+                </>
+              )}
+            </div>
           </div>
+          {s && canPlay && (
+            <div className="mx-auto w-full max-w-[720px] pr-2">
+              <AudioPlayer sessionId={id} durationMs={s.duration_ms} />
+            </div>
+          )}
         </div>
         <div className="flex min-h-0 flex-col">
           <AskPanel
