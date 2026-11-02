@@ -16,7 +16,8 @@ pub use index::{
     VoiceEntry,
 };
 pub use manage::{
-    delete_folder, delete_session, move_folder, move_vault, relocate_session, replace_header, sync_vault,
+    delete_folder, delete_session, move_folder, move_vault, relocate_session, replace_header,
+    restore_session_file, sync_vault,
 };
 pub use notes::{count_actions, excerpt, set_task};
 pub use vault::{FolderNode, create_folder, list_folders, validate_folder};

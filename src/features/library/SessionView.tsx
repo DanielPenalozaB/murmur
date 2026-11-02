@@ -141,6 +141,43 @@ function Suggestion({
   );
 }
 
+/** The session's file was deleted outside Murmur: write it again or let it go. */
+function MissingFile({ session }: { session: SessionDetail }) {
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const restore = async () => {
+    setBusy(true);
+    try {
+      await ipc.restoreSessionFile(session.id);
+      await Promise.all(
+        [["session", session.id], ["sessions"], ["folders"], ["tasks"]].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2 rounded-xl bg-accent-soft px-4 py-3 text-[13px] text-on-accent-soft">
+      <p>
+        <span className="font-semibold">This session's file isn't in your vault any more.</span> It
+        was deleted or moved out of the vault, so notes and names can't be saved to it. Murmur still
+        has the transcript and notes: restore the file, or delete the session from the ⋯ menu.
+      </p>
+      <div className="flex items-center gap-2">
+        <button type="button" className="btn-primary py-1.5" disabled={busy} onClick={restore}>
+          <RotateCcw className="size-3.5" /> Restore file
+        </button>
+        {error && <span className="text-accent">{error}</span>}
+      </div>
+    </div>
+  );
+}
+
 function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: number) => void }) {
   const queryClient = useQueryClient();
   const job = useNotes((s) => s.jobs[session.id]);
@@ -439,6 +476,8 @@ export function SessionView({ id, at }: { id: string; at?: number }) {
                       transcript.
                     </p>
                   )}
+
+                  {s.file_missing && <MissingFile session={s} />}
 
                   <Attendees session={s} onRename={rename} onUnname={unname} onDecline={decline} />
 

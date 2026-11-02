@@ -347,6 +347,28 @@ pub fn delete_session(index: &Index, id: &str) -> Result<(), StoreError> {
     index.delete_session(id)
 }
 
+/// Writes a session's file again from what the index kept (transcript, notes, speaker
+/// names), after it was deleted outside Murmur. Goes in the session's folder, never over
+/// another file. Returns the new path.
+pub fn restore_session_file(index: &Index, vault: &Path, id: &str) -> Result<PathBuf, StoreError> {
+    let (record, segments) = index
+        .get_session(id)?
+        .ok_or_else(|| StoreError::NotFound(format!("session {id}")))?;
+    if Path::new(&record.file_path).exists() {
+        return Ok(PathBuf::from(record.file_path));
+    }
+    let notes = index.notes(id)?;
+    let names = index.speaker_names(id)?;
+    let path = crate::write_session_file(vault, &record.session, &notes, &segments, &names)?;
+    index.relocate_session(
+        id,
+        &record.session.title,
+        &record.session.folder,
+        &path.to_string_lossy(),
+    )?;
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,6 +398,31 @@ mod tests {
     fn record(index: &Index, id: &str) -> (Session, String) {
         let (r, _) = index.get_session(id).unwrap().unwrap();
         (r.session, std::fs::read_to_string(&r.file_path).unwrap())
+    }
+
+    #[test]
+    fn restores_a_deleted_session_file() {
+        let vault = tempfile::tempdir().unwrap();
+        let mut index = Index::open_in_memory().unwrap();
+        let path = add(
+            &mut index,
+            vault.path(),
+            &session("a", "Standup", "Work", ExportFormat::Markdown),
+        );
+        index
+            .set_notes("a", "## Action items\n- [ ] Me: send it")
+            .unwrap();
+        std::fs::remove_file(&path).unwrap();
+        // The folder went too.
+        std::fs::remove_dir(vault.path().join("Work")).unwrap();
+
+        let restored = restore_session_file(&index, vault.path(), "a").unwrap();
+        assert_eq!(restored, path);
+        let (_, text) = record(&index, "a");
+        assert!(text.contains("session: a"));
+        assert!(text.contains("- [ ] Me: send it"));
+        // Already there: nothing to do.
+        assert_eq!(restore_session_file(&index, vault.path(), "a").unwrap(), path);
     }
 
     #[test]

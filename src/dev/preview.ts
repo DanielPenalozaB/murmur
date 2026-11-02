@@ -106,7 +106,14 @@ const record = {
   file_path: "/Users/me/Documents/Murmur/Work/2026-10-13 Sprint Release Review.md",
 };
 
-const detail: SessionDetail = { ...record, segments, notes, speakers, audio_bytes: 241_000_000 };
+const detail: SessionDetail = {
+  ...record,
+  segments,
+  notes,
+  speakers,
+  audio_bytes: 241_000_000,
+  file_missing: false,
+};
 
 const cards: SessionCard[] = [
   {
@@ -116,6 +123,7 @@ const cards: SessionCard[] = [
     actions_done: 1,
     speakers: ["Ana Torres", "Speaker 2"],
     audio_bytes: 241_000_000,
+    file_missing: false,
   },
   {
     ...record,
@@ -129,6 +137,7 @@ const cards: SessionCard[] = [
     actions_done: 2,
     speakers: ["Sarah Lin"],
     audio_bytes: 126_000_000,
+    file_missing: false,
   },
   {
     ...record,
@@ -141,6 +150,7 @@ const cards: SessionCard[] = [
     actions_done: 0,
     speakers: ["David Kim", "Ana Torres", "Marcus Chen"],
     audio_bytes: 0,
+    file_missing: false,
   },
   {
     ...record,
@@ -154,6 +164,7 @@ const cards: SessionCard[] = [
     // A long list must truncate, not widen the column.
     speakers: Array.from({ length: 50 }, (_, i) => `Speaker ${i + 1}`),
     audio_bytes: 322_000_000,
+    file_missing: false,
   },
 ];
 
@@ -172,7 +183,7 @@ const settings: Settings = {
 
 /** Action items from several meetings, for `view=actions`. */
 const taskNotes: TaskNotes[] = [
-  { ...record, notes, has_audio: true },
+  { ...record, notes, has_audio: true, file_missing: false },
   {
     ...cards[1],
     has_audio: true,
@@ -223,6 +234,12 @@ function silentWav(seconds = 60) {
 export function install() {
   const params = new URLSearchParams(location.search);
   const audio = silentWav();
+  // `&missing`: this session's file and one other meeting's were deleted outside Murmur.
+  if (params.has("missing")) {
+    detail.file_missing = true;
+    cards[3].file_missing = true;
+    taskNotes[3].file_missing = true;
+  }
   setAudioSource(() => audio);
   const view = params.get("view") ?? "live";
   const recording = view === "live" || view === "live-muted" || view === "live-silent";

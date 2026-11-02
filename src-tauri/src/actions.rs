@@ -15,6 +15,8 @@ pub struct TaskNotes {
     notes: String,
     /// Whether the recording is still there to play the moment a task was agreed.
     has_audio: bool,
+    /// The meeting's file was deleted outside Murmur, so its tasks can't be ticked.
+    file_missing: bool,
 }
 
 /// Meetings whose notes have action items, newest first.
@@ -31,6 +33,7 @@ pub fn task_notes(app: AppHandle) -> Result<Vec<TaskNotes>, String> {
         .into_iter()
         .map(|(record, notes)| TaskNotes {
             has_audio: crate::manage::audio_bytes(&app, &record.session.id) > 0,
+            file_missing: !std::path::Path::new(&record.file_path).exists(),
             record,
             notes,
         })

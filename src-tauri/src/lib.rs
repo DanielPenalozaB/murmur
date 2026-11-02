@@ -91,6 +91,7 @@ pub fn run() {
             manage::move_session,
             manage::delete_session,
             manage::delete_session_audio,
+            manage::restore_session_file,
             manage::move_folder,
             manage::delete_folder,
             manage::storage_usage,

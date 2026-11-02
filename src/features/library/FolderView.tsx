@@ -70,6 +70,14 @@ function Card({
             {card.folder || "Vault root"}
           </span>
         )}
+        {card.file_missing && (
+          <span
+            className="chip bg-accent-soft text-on-accent-soft"
+            title="Its file was deleted from your vault. Open it to restore or delete it."
+          >
+            File missing
+          </span>
+        )}
         <span>{formatRelative(card.started_at)}</span>
         <span className="text-outline">•</span>
         <span className="font-medium text-ink">

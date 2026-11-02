@@ -149,6 +149,13 @@ pub(crate) fn write_notes(index: &murmur_store::Index, session_id: &str, notes: 
         .map_err(|e| e.to_string())?
         .ok_or("session not found")?;
     let format: ExportFormat = record.session.format;
+    if !std::path::Path::new(&record.file_path).exists() {
+        return Err(format!(
+            "“{}” isn't in your vault any more (its file was deleted or moved out of it). \
+Restore the file from the session's page first.",
+            record.session.title
+        ));
+    }
     murmur_store::write_notes(std::path::Path::new(&record.file_path), format, notes)
         .map_err(|e| format!("could not update {}: {e}", record.file_path))?;
     index.set_notes(session_id, notes).map_err(|e| e.to_string())
