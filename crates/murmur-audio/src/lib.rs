@@ -6,6 +6,7 @@
 
 mod helper;
 mod meeting;
+mod mix;
 mod normalize;
 mod permissions;
 mod recorder;
@@ -13,6 +14,7 @@ mod vad;
 
 pub use helper::HelperProcess;
 pub use meeting::{LINGER, MeetingApp, MeetingDetector, MeetingEvent, MicWatcher, SETTLE, meeting_app};
+pub use mix::MixedWav;
 pub use normalize::{normalize_wav, read_wav};
 pub use permissions::{Access, Permissions};
 pub use recorder::{ChunkSenders, DRAFT_EVERY_MS, Recorder, RecorderStatus, Recording, TrackFile};

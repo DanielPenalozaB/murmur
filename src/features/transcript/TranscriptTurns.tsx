@@ -1,7 +1,7 @@
-import { Pencil } from "lucide-react";
+import { Pencil, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Segment, SpeakerInfo } from "../../lib/ipc";
-import { formatTimestamp, groupIntoTurns, speakerLabel } from "./group";
+import { formatTimestamp, groupIntoTurns, speakerLabel, turnAt } from "./group";
 
 /** A request to scroll to a moment; `nonce` lets the same timestamp be clicked twice. */
 export type Seek = { ms: number; nonce: number };
@@ -105,11 +105,17 @@ export function TranscriptTurns({
   seek,
   speakers,
   onRename,
+  onPlay,
+  playingAt,
 }: {
   segments: Segment[];
   seek?: Seek | null;
   speakers?: SpeakerInfo[];
   onRename?: Rename;
+  /** Plays the recording from a turn's start; without it, timestamps are plain text. */
+  onPlay?: (ms: number) => void;
+  /** Where the recording is while it plays; that turn is marked. */
+  playingAt?: number | null;
 }) {
   const turns = useMemo(() => groupIntoTurns(segments), [segments]);
   const refs = useRef<(HTMLDivElement | null)[]>([]);
@@ -118,16 +124,15 @@ export function TranscriptTurns({
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs per seek request, not per new line
   useEffect(() => {
     if (!seek || turns.length === 0) return;
-    // The turn that contains the moment: the last one starting at or before it.
-    let index = 0;
-    turns.forEach((turn, i) => {
-      if (turn.start <= seek.ms + 999) index = i;
-    });
+    // Citations are rounded down to the second.
+    const index = Math.max(0, turnAt(turns, seek.ms + 999));
     refs.current[index]?.scrollIntoView({ block: "center", behavior: "smooth" });
     setHighlight(index);
     const timer = setTimeout(() => setHighlight(null), 2000);
     return () => clearTimeout(timer);
   }, [seek]);
+
+  const playing = playingAt == null ? -1 : turnAt(turns, playingAt);
 
   return (
     <div className="flex flex-col gap-7">
@@ -141,7 +146,7 @@ export function TranscriptTurns({
               refs.current[i] = el;
             }}
             className={`-mx-4 flex flex-col gap-2 rounded-xl px-4 py-2 transition-colors duration-500 ${
-              highlight === i ? "bg-accent-soft/50" : ""
+              highlight === i ? "bg-accent-soft/50" : playing === i ? "bg-sidebar" : ""
             }`}
           >
             <div className="flex items-center gap-3 text-[13px]">
@@ -151,7 +156,21 @@ export function TranscriptTurns({
                 speakerId={turn.speaker}
                 onRename={onRename}
               />
-              <span className="tabular-nums text-ink-soft">{formatTimestamp(turn.start)}</span>
+              {onPlay ? (
+                <button
+                  type="button"
+                  className="group/play flex items-center gap-1 rounded px-1 tabular-nums text-ink-soft hover:bg-muted hover:text-ink"
+                  title="Play from here"
+                  onClick={() => onPlay(turn.start)}
+                >
+                  <Play
+                    className={`size-3 fill-current ${playing === i ? "text-accent" : "opacity-0 group-hover/play:opacity-100"}`}
+                  />
+                  {formatTimestamp(turn.start)}
+                </button>
+              ) : (
+                <span className="tabular-nums text-ink-soft">{formatTimestamp(turn.start)}</span>
+              )}
             </div>
             <p
               className={

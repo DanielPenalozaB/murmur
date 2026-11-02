@@ -86,6 +86,15 @@ speakers still under it (`Index::rebuild_voice`), since `remember_voice` only av
 in. Correcting a name leaves the notes alone; only a "Speaker N" is replaced there.
 "Looks right" stores the finding's key in `review_dismissed`.
 
+## Playback
+
+A session page plays its recording: the two tracks are mixed on the fly into a 16-bit WAV
+(`murmur_audio::MixedWav`) and served by byte range from the `murmur-audio://localhost/<id>`
+scheme (`src-tauri/src/playback.rs`), so seeking an hour-long meeting only reads the part
+being played and nothing extra is written to disk. Transcript timestamps play from that
+turn, citations move the player to their moment, and the turn being heard is marked. The
+player is hidden once a session's audio is deleted.
+
 ## Updates
 
 The Tauri updater plugin reads `latest.json` from the latest GitHub release, checks the

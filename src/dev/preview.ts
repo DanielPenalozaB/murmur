@@ -4,6 +4,7 @@
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
+import { setAudioSource } from "../features/player/player";
 import { useTranscript } from "../features/transcript/store";
 import type { Segment, SessionCard, SessionDetail, Settings } from "../lib/ipc";
 import { useNav, useUi } from "../lib/nav";
@@ -164,8 +165,33 @@ const settings: Settings = {
   ignored_meeting_apps: ["Slack"],
 };
 
+/** A minute of silence (8 kHz, 8-bit) standing in for a session's recording. */
+function silentWav(seconds = 60) {
+  const rate = 8000;
+  const bytes = new Uint8Array(44 + rate * seconds).fill(128);
+  const view = new DataView(bytes.buffer);
+  const text = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
+  };
+  text(0, "RIFF");
+  view.setUint32(4, bytes.length - 8, true);
+  text(8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  text(36, "data");
+  view.setUint32(40, rate * seconds, true);
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+}
+
 export function install() {
   const params = new URLSearchParams(location.search);
+  const audio = silentWav();
+  setAudioSource(() => audio);
   const view = params.get("view") ?? "live";
   const recording = view === "live" || view === "live-muted" || view === "live-silent";
   let micMuted = view === "live-muted";
