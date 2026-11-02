@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Check, CircleCheck, Play } from "lucide-react";
+import { ArrowUpRight, Check, CircleCheck, ListChecks, Play, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Avatar, PageHeader, TopBar } from "../../components/ui";
 import { formatRelative, ipc } from "../../lib/ipc";
 import { folderCrumbs, useNav } from "../../lib/nav";
+import { eachInTurn } from "../library/manage";
 import { AudioPlayer } from "../player/AudioPlayer";
 import { usePlayer } from "../player/player";
 import { formatTimestamp, groupIntoTurns, speakerLabel, turnAt } from "../transcript/group";
@@ -13,8 +14,12 @@ export function useTasks() {
   const settings = useQuery({ queryKey: ["settings"], queryFn: ipc.getSettings });
   const notes = useQuery({ queryKey: ["tasks"], queryFn: ipc.taskNotes });
   const userName = settings.data?.user_name ?? "";
-  const tasks = useMemo(() => collectTasks(notes.data ?? [], userName), [notes.data, userName]);
-  return { tasks, userName, error: notes.error };
+  // A meeting whose file was deleted outside Murmur can't have its tasks ticked; the
+  // library offers to restore or delete it instead.
+  const kept = useMemo(() => (notes.data ?? []).filter((n) => !n.file_missing), [notes.data]);
+  const tasks = useMemo(() => collectTasks(kept, userName), [kept, userName]);
+  const missing = (notes.data?.length ?? 0) - kept.length;
+  return { tasks, userName, missing, error: notes.error };
 }
 
 /** Ticks a task in its meeting's notes and refreshes everything that shows it. */
@@ -25,6 +30,30 @@ function useToggle() {
     onSettled: (_data, _error, task) =>
       Promise.all(
         [["tasks"], ["sessions"], ["session", task.sessionId]].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey }),
+        ),
+      ),
+  });
+}
+
+/** Ticks or unticks several tasks, one write at a time; returns the keys that failed. */
+function useBulkToggle() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ tasks, done }: { tasks: Task[]; done: boolean }) => {
+      const changing = tasks.filter((t) => t.done !== done);
+      const failed = await eachInTurn(changing, (t) =>
+        ipc.setActionDone(t.sessionId, t.line, done),
+      );
+      if (failed.length > 0) {
+        // The first reason is usually the reason for all of them.
+        const more = failed.length > 1 ? ` (and ${failed.length - 1} more)` : "";
+        throw new Error(`${failed.length} couldn't be changed${more}: ${failed[0].error}`);
+      }
+    },
+    onSettled: () =>
+      Promise.all(
+        [["tasks"], ["sessions"], ["session"]].map((queryKey) =>
           queryClient.invalidateQueries({ queryKey }),
         ),
       ),
@@ -86,42 +115,66 @@ function TaskRow({
   task,
   today,
   selected,
+  picked,
   onSelect,
 }: {
   task: Task;
   today: Date;
   selected: boolean;
-  onSelect: () => void;
+  /** Set while choosing several; the box then picks the task instead of ticking it. */
+  picked?: boolean;
+  onSelect: (e: React.MouseEvent) => void;
 }) {
   const toggle = useToggle();
   const done = toggle.isPending ? !task.done : task.done;
+  const picking = picked !== undefined;
   return (
     <div
-      className={`flex items-start gap-3 rounded-xl px-4 py-3 ${selected ? "bg-surface ring-1 ring-accent/30" : "bg-muted/60 hover:bg-muted"}`}
+      className={`flex flex-col gap-2 rounded-xl px-4 py-3 ${
+        picked
+          ? "bg-surface ring-2 ring-accent"
+          : selected
+            ? "bg-surface ring-1 ring-accent/30"
+            : "bg-muted/60 hover:bg-muted"
+      }`}
     >
-      <button
-        type="button"
-        className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md ring-1 ring-inset ${done ? "bg-local text-canvas ring-local" : "ring-outline hover:ring-accent"}`}
-        aria-label={done ? "Mark as not done" : "Mark as done"}
-        title={done ? "Mark as not done" : "Mark as done (updates the meeting's notes)"}
-        disabled={toggle.isPending}
-        onClick={() => toggle.mutate(task)}
-      >
-        {done && <Check className="size-3.5" />}
-      </button>
-      <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
-        <p className={`text-[15px] ${done ? "text-ink-soft line-through" : ""}`}>
-          {sentence(task.text)}
-        </p>
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-soft">
-          <Owners task={task} />
-          <DueChip task={task} today={today} />
-          <span className="truncate">
-            {task.title} · {formatRelative(task.startedAt)}
-          </span>
-        </div>
-      </button>
-      {toggle.error && <span className="text-[12px] text-accent">{String(toggle.error)}</span>}
+      <div className="flex items-start gap-3">
+        {picking ? (
+          <button
+            type="button"
+            className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ${picked ? "bg-accent text-on-accent ring-accent" : "ring-outline hover:ring-accent"}`}
+            aria-label={picked ? "Unselect" : "Select"}
+            aria-pressed={picked}
+            onClick={onSelect}
+          >
+            {picked && <Check className="size-3.5" />}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-md ring-1 ring-inset ${done ? "bg-local text-canvas ring-local" : "ring-outline hover:ring-accent"}`}
+            aria-label={done ? "Mark as not done" : "Mark as done"}
+            title={done ? "Mark as not done" : "Mark as done (updates the meeting's notes)"}
+            disabled={toggle.isPending}
+            onClick={() => toggle.mutate(task)}
+          >
+            {done && <Check className="size-3.5" />}
+          </button>
+        )}
+        <button type="button" className="min-w-0 flex-1 text-left" onClick={onSelect}>
+          <p className={`text-[15px] ${done ? "text-ink-soft line-through" : ""}`}>
+            {sentence(task.text)}
+          </p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-soft">
+            <Owners task={task} />
+            <DueChip task={task} today={today} />
+            <span className="truncate">
+              {task.title} · {formatRelative(task.startedAt)}
+            </span>
+          </div>
+        </button>
+      </div>
+      {toggle.error && <p className="pl-8 text-[12px] text-accent">{String(toggle.error)}</p>}
     </div>
   );
 }
@@ -220,7 +273,7 @@ function TaskDetail({ task, today }: { task: Task; today: Date }) {
 
 export function ActionsView() {
   const go = useNav((s) => s.go);
-  const { tasks, userName, error } = useTasks();
+  const { tasks, userName, missing, error } = useTasks();
   const today = useMemo(() => new Date(), []);
   const mine = tasks.filter((t) => t.mine && !t.done);
   const open = tasks.filter((t) => !t.done);
@@ -231,6 +284,16 @@ export function ActionsView() {
   const filter: Filter = chosen ?? (mine.length > 0 ? "mine" : "open");
   const [owner, setOwner] = useState<string>("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // Keys picked for a bulk change; null when not choosing.
+  const [picks, setPicks] = useState<Set<string> | null>(null);
+  const bulk = useBulkToggle();
+  const pick = (key: string) =>
+    setPicks((set) => {
+      const next = new Set(set);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   const owners = useMemo(() => {
     const counts = new Map<string, number>();
@@ -265,9 +328,17 @@ export function ActionsView() {
       task={t}
       today={today}
       selected={selected?.key === t.key}
-      onSelect={() => setSelectedKey(t.key)}
+      picked={picks ? picks.has(t.key) : undefined}
+      onSelect={(e) => {
+        if (picks || e.metaKey) pick(t.key);
+        else setSelectedKey(t.key);
+      }}
     />
   );
+  const pickedTasks = listed.filter((t) => picks?.has(t.key));
+  const markAll = (done: boolean) =>
+    // Done: leave selecting, as the library does after a bulk change.
+    bulk.mutate({ tasks: pickedTasks, done }, { onSuccess: () => setPicks(null) });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -289,6 +360,20 @@ export function ActionsView() {
               <Stat label="Done" value={done.length} />
             </div>
 
+            {missing > 0 && (
+              <p className="rounded-xl bg-sidebar px-4 py-3 text-[13px] text-ink-soft">
+                Action items from {missing} {missing === 1 ? "meeting" : "meetings"} whose file was
+                deleted from your vault are hidden.{" "}
+                <button
+                  type="button"
+                  className="font-semibold text-accent underline"
+                  onClick={() => go({ kind: "folder", folder: null })}
+                >
+                  Restore or delete {missing === 1 ? "it" : "them"} in All notes
+                </button>
+                .
+              </p>
+            )}
             {!userName && (
               <p className="rounded-xl bg-sidebar px-4 py-3 text-[13px] text-ink-soft">
                 Tasks written for “Me” count as yours. To include the ones given to you by name,{" "}
@@ -311,6 +396,7 @@ export function ActionsView() {
                   onClick={() => {
                     setChosen(tab.id);
                     setSelectedKey(null);
+                    if (picks) setPicks(new Set());
                   }}
                   className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium ${
                     filter === tab.id ? "bg-ink text-canvas" : "bg-muted text-ink hover:bg-high"
@@ -320,21 +406,33 @@ export function ActionsView() {
                   <span className="tabular-nums opacity-70">{tab.count}</span>
                 </button>
               ))}
-              {owners.length > 0 && filter !== "mine" && (
-                <select
-                  className="input ml-auto py-1.5 text-[13px]"
-                  aria-label="Owner"
-                  value={owner}
-                  onChange={(e) => setOwner(e.target.value)}
-                >
-                  <option value="">Everyone</option>
-                  {owners.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              )}
+              <div className="ml-auto flex items-center gap-2">
+                {owners.length > 0 && filter !== "mine" && (
+                  <select
+                    className="input py-1.5 text-[13px]"
+                    aria-label="Owner"
+                    value={owner}
+                    onChange={(e) => setOwner(e.target.value)}
+                  >
+                    <option value="">Everyone</option>
+                    {owners.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {listed.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn-quiet"
+                    title="Choose several to mark done or not done (or ⌘-click a task)"
+                    onClick={() => setPicks(picks ? null : new Set())}
+                  >
+                    <ListChecks className="size-4" /> {picks ? "Done" : "Select"}
+                  </button>
+                )}
+              </div>
             </div>
 
             {tasks.length === 0 && (
@@ -368,6 +466,61 @@ export function ActionsView() {
                     </section>
                   );
                 })}
+
+            {/* Nothing listed (e.g. every task just moved to Done): nothing to act on. */}
+            {picks && listed.length > 0 && (
+              <div className="sticky bottom-4 z-10 mx-auto flex flex-col items-center gap-1">
+                {bulk.error && (
+                  <p className="max-w-[640px] rounded-lg bg-accent-soft px-3 py-1 text-[12px] text-on-accent-soft">
+                    {String(bulk.error)}
+                  </p>
+                )}
+                <div className="flex items-center gap-1 rounded-full bg-ink px-2 py-1.5 text-[13px] whitespace-nowrap text-canvas shadow-xl">
+                  <span className="px-3 font-semibold tabular-nums">
+                    {pickedTasks.length} selected
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-full px-3 py-1 hover:bg-canvas/15"
+                    onClick={() =>
+                      setPicks(
+                        pickedTasks.length === listed.length
+                          ? new Set()
+                          : new Set(listed.map((t) => t.key)),
+                      )
+                    }
+                  >
+                    {pickedTasks.length === listed.length ? "Select none" : "Select all"}
+                  </button>
+                  <span className="mx-1 h-4 w-px bg-canvas/25" />
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-1 hover:bg-canvas/15 disabled:opacity-40 disabled:hover:bg-transparent"
+                    disabled={bulk.isPending || !pickedTasks.some((t) => !t.done)}
+                    onClick={() => markAll(true)}
+                  >
+                    <CircleCheck className="size-3.5" /> Mark done
+                  </button>
+                  <button
+                    type="button"
+                    className="flex items-center gap-1.5 rounded-full px-3 py-1 hover:bg-canvas/15 disabled:opacity-40 disabled:hover:bg-transparent"
+                    disabled={bulk.isPending || !pickedTasks.some((t) => t.done)}
+                    onClick={() => markAll(false)}
+                  >
+                    <RotateCcw className="size-3.5" /> Mark not done
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-full p-1.5 hover:bg-canvas/15"
+                    aria-label="Stop selecting"
+                    title="Stop selecting"
+                    onClick={() => setPicks(null)}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="flex min-h-0 flex-col">

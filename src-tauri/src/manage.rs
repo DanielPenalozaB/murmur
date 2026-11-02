@@ -82,6 +82,17 @@ pub fn delete_session_audio(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Writes a session's file again after it was deleted outside Murmur.
+#[tauri::command]
+pub fn restore_session_file(app: AppHandle, id: String) -> Result<(), String> {
+    ensure_idle(&app)?;
+    let library = app.state::<LibraryState>();
+    let index = library.0.lock().unwrap();
+    murmur_store::restore_session_file(&index, &vault(&app), &id)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// Renames a folder (`to` in the same parent) or moves it elsewhere in the vault.
 #[tauri::command]
 pub fn move_folder(app: AppHandle, from: String, to: String) -> Result<(), String> {

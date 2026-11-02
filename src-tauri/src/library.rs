@@ -27,6 +27,8 @@ pub struct SessionDetail {
     speakers: Vec<SpeakerInfo>,
     /// Size of the recordings, 0 once deleted (then it can't be re-transcribed).
     audio_bytes: u64,
+    /// The file was deleted outside Murmur (and not found elsewhere in the vault).
+    file_missing: bool,
 }
 
 pub fn open_index(app: &AppHandle) -> Result<Index, String> {
@@ -57,17 +59,35 @@ pub fn create_folder(path: String, settings: State<SettingsState>) -> Result<(),
     murmur_store::create_folder(&vault, path.trim()).map_err(|e| e.to_string())
 }
 
+/// A library card, with how much space its recordings take (0 once deleted).
+#[derive(Serialize)]
+pub struct CardWithAudio {
+    #[serde(flatten)]
+    card: SessionCard,
+    audio_bytes: u64,
+    file_missing: bool,
+}
+
 #[tauri::command]
 pub fn list_sessions(
+    app: AppHandle,
     folder: Option<String>,
     library: State<LibraryState>,
-) -> Result<Vec<SessionCard>, String> {
-    library
+) -> Result<Vec<CardWithAudio>, String> {
+    let cards = library
         .0
         .lock()
         .unwrap()
         .session_cards(folder.as_deref())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(cards
+        .into_iter()
+        .map(|card| CardWithAudio {
+            audio_bytes: crate::manage::audio_bytes(&app, &card.record.session.id),
+            file_missing: !std::path::Path::new(&card.record.file_path).exists(),
+            card,
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -79,6 +99,7 @@ pub fn get_session(
     let index = library.0.lock().unwrap();
     let found = index.get_session(&id).map_err(|e| e.to_string())?;
     let (record, segments) = found.ok_or("session not found")?;
+    let record_path = record.file_path.clone();
     let notes = index.notes(&id).map_err(|e| e.to_string())?;
     let mut speakers = index.speakers(&id).map_err(|e| e.to_string())?;
     crate::speakers::suggest(&index, &id, &mut speakers).map_err(|e| e.to_string())?;
@@ -88,6 +109,7 @@ pub fn get_session(
         notes,
         speakers,
         audio_bytes: crate::manage::audio_bytes(&app, &id),
+        file_missing: !std::path::Path::new(&record_path).exists(),
     })
 }
 

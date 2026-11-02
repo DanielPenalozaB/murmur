@@ -115,6 +115,7 @@ describe("collectTasks", () => {
     format: "markdown",
     file_path: "/v/Work/Standup.md",
     has_audio: true,
+    file_missing: false,
     notes:
       "## Action items\n- [ ] Me: Write the spec (Friday) [01:44]\n- [x] Ana and Bo: Book the room [02:00]\n- [ ] Review the PR",
   };

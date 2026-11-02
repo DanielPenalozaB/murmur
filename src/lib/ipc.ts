@@ -112,6 +112,8 @@ export type SessionDetail = SessionRecord & {
   speakers: SpeakerInfo[];
   /** Size of the recordings; 0 once deleted, and then it can't be re-transcribed. */
   audio_bytes: number;
+  /** The file was deleted outside Murmur; it can be written again from what's indexed. */
+  file_missing: boolean;
 };
 
 export type Access = "granted" | "denied" | "undetermined" | "unknown";
@@ -120,7 +122,12 @@ export type Permissions = { mic: Access; system: Access };
 export type StorageUsage = { audio_bytes: number; sessions_with_audio: number };
 
 /** A meeting whose notes have action items. */
-export type TaskNotes = SessionRecord & { notes: string; has_audio: boolean };
+export type TaskNotes = SessionRecord & {
+  notes: string;
+  has_audio: boolean;
+  /** The meeting's file was deleted outside Murmur, so its tasks can't be ticked. */
+  file_missing: boolean;
+};
 
 /** A session as a library card shows it. */
 export type SessionCard = SessionRecord & {
@@ -129,6 +136,10 @@ export type SessionCard = SessionRecord & {
   actions_done: number;
   /** People on the call, in speaking order. */
   speakers: string[];
+  /** Size of the recordings; 0 once deleted. */
+  audio_bytes: number;
+  /** The file was deleted outside Murmur. */
+  file_missing: boolean;
 };
 
 export type VoiceEntry = { name: string; meetings: number; last_seen: string | null };
@@ -210,6 +221,7 @@ export const ipc = {
   moveSession: (id: string, folder: string) => invoke<void>("move_session", { id, folder }),
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
   deleteSessionAudio: (id: string) => invoke<void>("delete_session_audio", { id }),
+  restoreSessionFile: (id: string) => invoke<void>("restore_session_file", { id }),
   storageUsage: () => invoke<StorageUsage>("storage_usage"),
   syncVault: () => invoke<number>("sync_vault"),
   permissions: () => invoke<Permissions>("permissions"),

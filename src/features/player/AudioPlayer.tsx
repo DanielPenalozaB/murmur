@@ -1,4 +1,4 @@
-import { Pause, Play, RotateCcw, RotateCw } from "lucide-react";
+import { LocateFixed, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import { useEffect } from "react";
 import { formatTimestamp } from "../transcript/group";
 import { nextRate, skip, usePlayer } from "./player";
@@ -11,11 +11,14 @@ export function AudioPlayer({
   sessionId,
   durationMs,
   compact,
+  onLocate,
 }: {
   sessionId: string;
   durationMs: number;
   /** For narrow panels: no skip buttons, so the scrubber keeps its room. */
   compact?: boolean;
+  /** Shows the transcript where playback is. */
+  onLocate?: (ms: number) => void;
 }) {
   const { playing, position, duration, rate, error } = usePlayer();
   const { load, unload, play, pause, seek, setRate } = usePlayer.getState();
@@ -77,6 +80,16 @@ export function AudioPlayer({
           onChange={(e) => seek(Number(e.target.value))}
         />
         <span className="w-12 shrink-0 tabular-nums">{formatTimestamp(total)}</span>
+        {onLocate && (playing || position > 0) && (
+          <button
+            type="button"
+            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 font-semibold hover:bg-muted hover:text-ink"
+            title="Show this moment in the transcript"
+            onClick={() => onLocate(position)}
+          >
+            <LocateFixed className="size-3.5" /> In transcript
+          </button>
+        )}
         <button
           type="button"
           className="w-11 shrink-0 rounded-md py-1 font-semibold tabular-nums hover:bg-muted hover:text-ink"
