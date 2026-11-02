@@ -143,6 +143,11 @@ itself (transcript text, audio) goes in the log.
 - [ADR-003](adr/003-files-are-source-of-truth.md): Markdown/TXT files are the source of truth, SQLite is an index
 - [ADR-004](adr/004-ask-prompt-layout.md): Ask uses an append-only transcript prefix
 - [ADR-005](adr/005-mixed-language-meetings.md): meetings that mix languages are split at language switches
+- Models load only for the work that needs them: Whisper (turbo + base) when a recording or
+  re-transcription starts, the speaker model for each identification, and all are freed when
+  that's done (`recording::release_models`). Start waits a few seconds for the load. Freeing
+  them also matters at exit: whisper.cpp's Metal backend aborts the process if a model is still
+  loaded then.
 
 ## Milestones
 

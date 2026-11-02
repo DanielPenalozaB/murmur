@@ -59,7 +59,6 @@ pub fn run() {
             }
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
             app.manage(library::LibraryState(Mutex::new(library::open_index(handle)?)));
-            recording::preload_model(handle);
             meeting::watch(handle);
             tray::install(handle)?;
             Ok(())

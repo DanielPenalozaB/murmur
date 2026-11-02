@@ -108,8 +108,6 @@ pub async fn download_models(
     };
     state.0.store(false, Ordering::Release);
     result?;
-    // Load them now so the first recording starts instantly.
-    crate::recording::preload_model(&app);
     let _ = on_event.send(DownloadEvent::Finished);
     Ok(())
 }

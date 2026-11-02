@@ -15,9 +15,10 @@ use tauri::{AppHandle, Manager};
 
 use crate::library::LibraryState;
 
-/// Loaded on first use (about 50 MB) and kept.
+/// One identification at a time. The speaker model (about 50 MB) is loaded for each
+/// and freed after, like the Whisper models.
 #[derive(Default)]
-pub struct SpeakersState(Mutex<Option<Diarizer>>);
+pub struct SpeakersState(Mutex<()>);
 
 /// Finds who spoke when in `<dir>/system.wav`, labels the system-audio segments
 /// (`speaker_1`, `speaker_2`…) and names the ones whose voice is remembered. Lines on
@@ -29,19 +30,15 @@ pub fn identify(
     segments: &mut Vec<Segment>,
 ) -> Result<Vec<SessionSpeaker>, String> {
     let state = app.state::<SpeakersState>();
-    let mut slot = state.0.lock().unwrap();
-    if slot.is_none() {
-        let models = app
-            .path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?
-            .join("models")
-            .join("speakers");
-        let diarizer = Diarizer::load(&models)
-            .map_err(|e| format!("{e}. Download the models from the Murmur setup screen."))?;
-        *slot = Some(diarizer);
-    }
-    let diarizer = slot.as_ref().expect("loaded above");
+    let one_at_a_time = state.0.lock().unwrap();
+    let models = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("models")
+        .join("speakers");
+    let diarizer = Diarizer::load(&models)
+        .map_err(|e| format!("{e}. Download the models from the Murmur setup screen."))?;
 
     if segments.iter().any(|s| s.channel == Channel::Mic) {
         let samples = murmur_audio::read_wav(&dir.join("mic.wav")).map_err(|e| e.to_string())?;
@@ -55,7 +52,8 @@ pub fn identify(
     let samples = murmur_audio::read_wav(&dir.join("system.wav")).map_err(|e| e.to_string())?;
     let started = std::time::Instant::now();
     let diarization = diarizer.run(&samples).map_err(|e| e.to_string())?;
-    drop(slot);
+    drop(diarizer);
+    drop(one_at_a_time);
     tracing::info!(
         "{} speakers in {:?} for {} s of audio",
         diarization.voiceprints.len(),
