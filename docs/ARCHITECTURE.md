@@ -93,7 +93,8 @@ A session page plays its recording: the two tracks are mixed on the fly into a 1
 scheme (`src-tauri/src/playback.rs`), so seeking an hour-long meeting only reads the part
 being played and nothing extra is written to disk. Transcript timestamps play from that
 turn, citations move the player to their moment, and the turn being heard is marked. The
-player is hidden once a session's audio is deleted.
+player is hidden once a session's audio is deleted. "In transcript" scrolls to the turn being
+heard.
 
 ## Action items
 
@@ -103,7 +104,8 @@ The Action items screen lists every `- [ ] Who: task` line from the notes of all
 Friday", "(due date: 5th)", "next week"), counted from the meeting's day
 (`src/features/actions/actions.ts`). Tasks for "Me", or for the name in Settings → Your
 name, are the user's. Ticking one rewrites that line in the session file and the index
-(`murmur_store::set_task`), refusing if the line is no longer a task.
+(`murmur_store::set_task`), refusing if the line is no longer a task. Select (or ⌘-click)
+marks several done or not done at once.
 
 ## Updates
 
@@ -160,7 +162,7 @@ itself (transcript text, audio) goes in the log.
      Stop. Menu actions are emitted to the main webview, which runs them like its own buttons,
      so closing the window only hides it and Murmur keeps running in the menu bar.
    - Permissions: `audiocap --permissions` reports microphone (AVCaptureDevice) and system-audio access. System audio has no public status API, so TCC's `TCCAccessPreflight` is looked up at runtime and reports "unknown" if it's missing. Live names a denied permission and opens its System Settings pane; it's checked again whenever the window comes to the front. "Not asked yet" isn't flagged, since macOS asks when recording starts.
-   - Library management: rename, move and delete sessions (the session page's ⋯ menu) and folders (the folder page). The vault file moves first, with its header updated, and the index follows; a file is never overwritten. Folders are deleted only when they hold no sessions and none of the user's own files.
+   - Library management: rename, move and delete sessions (the session page's ⋯ menu) and folders (the folder page). Select on a notes list (or ⌘-click) picks several sessions to move, delete or free their audio; they're changed one at a time with the same commands, and the ones that fail stay selected. The vault file moves first, with its header updated, and the index follows; a file is never overwritten. Folders are deleted only when they hold no sessions and none of the user's own files.
    - Files moved or renamed in Finder are found again at launch and whenever the window comes to the front: Markdown by the `session:` id in its frontmatter, plain text by file name.
    - The vault folder is chosen with Finder's picker (dialog plugin, called from Rust). Applying a new one moves each session file and notebook folder to the same place there, never overwriting; the user's other files stay in the old folder. It's refused while recording or re-transcribing.
    - Deleting a session's audio keeps the transcript and notes; such a session can't be re-transcribed. Settings shows how much space recordings take.

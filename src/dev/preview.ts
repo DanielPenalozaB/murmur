@@ -115,6 +115,7 @@ const cards: SessionCard[] = [
     actions_open: 2,
     actions_done: 1,
     speakers: ["Ana Torres", "Speaker 2"],
+    audio_bytes: 241_000_000,
   },
   {
     ...record,
@@ -127,6 +128,7 @@ const cards: SessionCard[] = [
     actions_open: 0,
     actions_done: 2,
     speakers: ["Sarah Lin"],
+    audio_bytes: 126_000_000,
   },
   {
     ...record,
@@ -138,6 +140,7 @@ const cards: SessionCard[] = [
     actions_open: 3,
     actions_done: 0,
     speakers: ["David Kim", "Ana Torres", "Marcus Chen"],
+    audio_bytes: 0,
   },
   {
     ...record,
@@ -150,6 +153,7 @@ const cards: SessionCard[] = [
     actions_done: 0,
     // A long list must truncate, not widen the column.
     speakers: Array.from({ length: 50 }, (_, i) => `Speaker ${i + 1}`),
+    audio_bytes: 322_000_000,
   },
 ];
 

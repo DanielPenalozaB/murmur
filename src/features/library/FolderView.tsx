@@ -2,45 +2,69 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
   AudioLines,
+  Check,
   CheckCircle2,
   Clock,
   ExternalLink,
   FileText,
+  FolderInput,
+  ListChecks,
   Lock,
+  Trash2,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 import { AvatarStack, PageHeader, TopBar } from "../../components/ui";
-import { formatDate, formatDuration, formatRelative, ipc, type SessionCard } from "../../lib/ipc";
+import {
+  formatBytes,
+  formatDate,
+  formatDuration,
+  formatRelative,
+  ipc,
+  type SessionCard,
+} from "../../lib/ipc";
 import { folderCrumbs, useNav } from "../../lib/nav";
 import { Markdown } from "../assistant/Markdown";
 import { actionItems, parseSections } from "../assistant/notes";
-import { FolderActions } from "./manage";
+import { type BulkAction, BulkDialog, FolderActions } from "./manage";
 
 function Card({
   card,
   selected,
+  checked,
   showFolder,
   onSelect,
   onOpen,
 }: {
   card: SessionCard;
   selected: boolean;
+  /** Set while choosing several; clicking then ticks the card. */
+  checked?: boolean;
   showFolder: boolean;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
   onOpen: () => void;
 }) {
   const people = ["Me", ...card.speakers];
   const total = card.actions_open + card.actions_done;
+  const choosing = checked !== undefined;
   return (
     <button
       type="button"
       onClick={onSelect}
-      onDoubleClick={onOpen}
+      onDoubleClick={choosing ? undefined : onOpen}
+      aria-pressed={choosing ? checked : undefined}
       className={`card flex flex-col gap-2.5 p-5 text-left transition-shadow hover:shadow-md ${
-        selected ? "border-l-4 border-accent" : ""
+        checked ? "ring-2 ring-accent" : selected && !choosing ? "border-l-4 border-accent" : ""
       }`}
     >
       <div className="flex flex-wrap items-center gap-2 text-[13px] text-ink-soft">
+        {choosing && (
+          <span
+            className={`flex size-5 items-center justify-center rounded-md ring-1 ring-inset ${checked ? "bg-accent text-on-accent ring-accent" : "bg-surface ring-outline"}`}
+          >
+            {checked && <Check className="size-3.5" />}
+          </span>
+        )}
         {showFolder && (
           <span className="chip bg-local-soft text-on-local-soft">
             {card.folder || "Vault root"}
@@ -153,7 +177,19 @@ export function FolderView({ folder }: { folder: string | null }) {
     queryFn: () => ipc.listSessions(folder),
   });
   const [selected, setSelected] = useState<string | null>(null);
+  // Ids ticked for a bulk action; null when not choosing.
+  const [chosen, setChosen] = useState<Set<string> | null>(null);
+  const [bulk, setBulk] = useState<BulkAction | null>(null);
   const cards = sessions.data ?? [];
+  const picked = cards.filter((c) => chosen?.has(c.id));
+  const audioBytes = picked.reduce((sum, c) => sum + c.audio_bytes, 0);
+  const toggle = (id: string) =>
+    setChosen((set) => {
+      const next = new Set(set);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const current = selected && cards.some((c) => c.id === selected) ? selected : cards[0]?.id;
   const name =
     folder === null
@@ -189,6 +225,16 @@ export function FolderView({ folder }: { folder: string | null }) {
             subtitle={`${cards.length} ${cards.length === 1 ? "session" : "sessions"} stored on this Mac.`}
           >
             <div className="flex items-center gap-1">
+              {cards.length > 0 && (
+                <button
+                  type="button"
+                  className="btn-quiet"
+                  title="Choose several sessions to move or delete (or ⌘-click a card)"
+                  onClick={() => setChosen(chosen ? null : new Set())}
+                >
+                  <ListChecks className="size-4" /> {chosen ? "Done" : "Select"}
+                </button>
+              )}
               {folder && sessions.isSuccess && (
                 <FolderActions folder={folder} sessions={cards.length} />
               )}
@@ -218,20 +264,88 @@ export function FolderView({ folder }: { folder: string | null }) {
                     key={c.id}
                     card={c}
                     selected={c.id === current}
+                    checked={chosen ? chosen.has(c.id) : undefined}
                     showFolder={folder === null}
-                    onSelect={() => setSelected(c.id)}
+                    onSelect={(e) => {
+                      if (chosen || e.metaKey) toggle(c.id);
+                      else setSelected(c.id);
+                    }}
                     onOpen={() => go({ kind: "session", id: c.id })}
                   />
                 ))}
-                <p className="flex items-center gap-1 px-1 text-[12px] text-ink-soft">
-                  Double-click a note to open it <ArrowRight className="size-3" />
-                </p>
+                {!chosen && (
+                  <p className="flex items-center gap-1 px-1 text-[12px] text-ink-soft">
+                    Double-click a note to open it <ArrowRight className="size-3" />
+                  </p>
+                )}
+                {chosen && (
+                  <div className="sticky bottom-4 z-10 mx-auto flex items-center gap-1 rounded-full bg-ink px-2 py-1.5 text-[13px] whitespace-nowrap text-canvas shadow-xl">
+                    <span className="px-3 font-semibold tabular-nums">
+                      {picked.length} selected
+                    </span>
+                    <button
+                      type="button"
+                      className="rounded-full px-3 py-1 hover:bg-canvas/15"
+                      onClick={() =>
+                        setChosen(
+                          picked.length === cards.length
+                            ? new Set()
+                            : new Set(cards.map((c) => c.id)),
+                        )
+                      }
+                    >
+                      {picked.length === cards.length ? "Select none" : "Select all"}
+                    </button>
+                    <span className="mx-1 h-4 w-px bg-canvas/25" />
+                    {(
+                      [
+                        ["move", FolderInput, "Move", picked.length === 0],
+                        [
+                          "delete-audio",
+                          AudioLines,
+                          audioBytes > 0
+                            ? `Delete audio (${formatBytes(audioBytes)})`
+                            : "Delete audio",
+                          audioBytes === 0,
+                        ],
+                        ["delete", Trash2, "Delete", picked.length === 0],
+                      ] as const
+                    ).map(([id, Icon, label, disabled]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        disabled={disabled}
+                        className={`flex items-center gap-1.5 rounded-full px-3 py-1 hover:bg-canvas/15 disabled:opacity-40 disabled:hover:bg-transparent ${id === "delete" ? "text-accent-soft" : ""}`}
+                        onClick={() => setBulk(id)}
+                      >
+                        <Icon className="size-3.5" /> {label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="rounded-full p-1.5 hover:bg-canvas/15"
+                      aria-label="Stop selecting"
+                      title="Stop selecting"
+                      onClick={() => setChosen(null)}
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
               {/* Fits the scroll area (window minus the 3.5rem top bar and 2rem bottom padding), so a
                   long preview scrolls inside the panel instead of with the list. */}
               <div className="sticky top-0 flex max-h-[calc(100vh-5.5rem)] flex-col">
                 {current && <Preview id={current} />}
               </div>
+              {bulk && (
+                <BulkDialog
+                  cards={picked}
+                  action={bulk}
+                  onDone={(failed) => setChosen(failed.length > 0 ? new Set(failed) : null)}
+                  onClose={() => setBulk(null)}
+                />
+              )}
             </div>
           )}
         </div>

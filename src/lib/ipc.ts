@@ -129,6 +129,8 @@ export type SessionCard = SessionRecord & {
   actions_done: number;
   /** People on the call, in speaking order. */
   speakers: string[];
+  /** Size of the recordings; 0 once deleted. */
+  audio_bytes: number;
 };
 
 export type VoiceEntry = { name: string; meetings: number; last_seen: string | null };

@@ -294,6 +294,11 @@ export function SessionView({ id, at }: { id: string; at?: number }) {
     setSeek({ ms, nonce: Date.now() });
     if (canPlay) usePlayer.getState().seek(ms);
   };
+  // Where the recording is playing: scroll there without touching playback.
+  const locate = (ms: number) => {
+    setTab("transcript");
+    setSeek({ ms, nonce: Date.now() });
+  };
   const rename: Rename = async (speakerId, name) => {
     await ipc.renameSpeaker(id, speakerId, name);
     await refreshSpeakers(queryClient, id);
@@ -490,7 +495,7 @@ export function SessionView({ id, at }: { id: string; at?: number }) {
           </div>
           {s && canPlay && (
             <div className="mx-auto w-full max-w-[720px] pr-2">
-              <AudioPlayer sessionId={id} durationMs={s.duration_ms} />
+              <AudioPlayer sessionId={id} durationMs={s.duration_ms} onLocate={locate} />
             </div>
           )}
         </div>

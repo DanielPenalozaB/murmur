@@ -57,17 +57,33 @@ pub fn create_folder(path: String, settings: State<SettingsState>) -> Result<(),
     murmur_store::create_folder(&vault, path.trim()).map_err(|e| e.to_string())
 }
 
+/// A library card, with how much space its recordings take (0 once deleted).
+#[derive(Serialize)]
+pub struct CardWithAudio {
+    #[serde(flatten)]
+    card: SessionCard,
+    audio_bytes: u64,
+}
+
 #[tauri::command]
 pub fn list_sessions(
+    app: AppHandle,
     folder: Option<String>,
     library: State<LibraryState>,
-) -> Result<Vec<SessionCard>, String> {
-    library
+) -> Result<Vec<CardWithAudio>, String> {
+    let cards = library
         .0
         .lock()
         .unwrap()
         .session_cards(folder.as_deref())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    Ok(cards
+        .into_iter()
+        .map(|card| CardWithAudio {
+            audio_bytes: crate::manage::audio_bytes(&app, &card.record.session.id),
+            card,
+        })
+        .collect())
 }
 
 #[tauri::command]

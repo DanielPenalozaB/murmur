@@ -9,7 +9,7 @@ import {
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { formatBytes, ipc, type SessionDetail } from "../../lib/ipc";
+import { formatBytes, ipc, type SessionCard, type SessionDetail } from "../../lib/ipc";
 import { useNav } from "../../lib/nav";
 import { flattenFolders } from "./folders";
 
@@ -289,6 +289,134 @@ function SessionDialog({
             Deletes the file in your vault, the recordings and the notes. Remembered voices stay.
             This can't be undone.
           </p>
+        </Dialog>
+      );
+  }
+}
+
+/**
+ * Runs `action` on each item in turn (the library allows one change at a time) and
+ * returns the ones that failed with why, so the rest still go through.
+ */
+export async function eachInTurn<T>(items: T[], action: (item: T) => Promise<unknown>) {
+  const failed: { item: T; error: string }[] = [];
+  for (const item of items) {
+    try {
+      await action(item);
+    } catch (e) {
+      failed.push({ item, error: String(e) });
+    }
+  }
+  return failed;
+}
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+export type BulkAction = "move" | "delete-audio" | "delete";
+
+/** Move, delete the audio of, or delete several sessions. Failed ones stay selected. */
+export function BulkDialog({
+  cards,
+  action,
+  onDone,
+  onClose,
+}: {
+  cards: SessionCard[];
+  action: BulkAction;
+  /** The ids that couldn't be changed. */
+  onDone: (failed: string[]) => void;
+  onClose: () => void;
+}) {
+  const refresh = useRefresh();
+  const folders = useQuery({ queryKey: ["folders"], queryFn: ipc.listFolders });
+  const [folder, setFolder] = useState(cards[0]?.folder ?? "");
+  const withAudio = cards.filter((c) => c.audio_bytes > 0);
+  const bytes = withAudio.reduce((sum, c) => sum + c.audio_bytes, 0);
+  const sessions = plural(cards.length, "session");
+
+  const run = async (targets: SessionCard[], change: (c: SessionCard) => Promise<void>) => {
+    const failed = await eachInTurn(targets, change);
+    await refresh();
+    onDone(failed.map((f) => f.item.id));
+    if (failed.length > 0) {
+      const names = failed.map((f) => `“${f.item.title}”: ${f.error}`).join("; ");
+      throw new Error(`${plural(failed.length, "session")} couldn't be changed. ${names}`);
+    }
+  };
+
+  switch (action) {
+    case "move":
+      return (
+        <Dialog
+          icon={FolderInput}
+          eyebrow="Move"
+          title={`Move ${sessions}`}
+          submit="Move"
+          onClose={onClose}
+          onSubmit={() =>
+            run(
+              cards.filter((c) => c.folder !== folder),
+              (c) => ipc.moveSession(c.id, folder),
+            )
+          }
+        >
+          <select
+            className="input"
+            aria-label="Folder"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+          >
+            <option value="">Vault root</option>
+            {flattenFolders(folders.data?.tree ?? []).map((path) => (
+              <option key={path} value={path}>
+                {path}
+              </option>
+            ))}
+          </select>
+          <p className="-mt-2 text-[13px] text-ink-soft">Their files in your vault move too.</p>
+        </Dialog>
+      );
+    case "delete-audio":
+      return (
+        <Dialog
+          icon={AudioLines}
+          eyebrow="Delete audio"
+          title={`Delete the recordings of ${plural(withAudio.length, "session")}?`}
+          submit={`Delete ${formatBytes(bytes)}`}
+          danger
+          onClose={onClose}
+          onSubmit={() => run(withAudio, (c) => ipc.deleteSessionAudio(c.id))}
+        >
+          <p className="text-[14px] text-ink-soft">
+            Frees {formatBytes(bytes)}. Transcripts and notes stay, but{" "}
+            {withAudio.length === 1 ? "it" : "they"} can't be re-transcribed or played afterwards.
+            {withAudio.length < cards.length &&
+              ` ${plural(cards.length - withAudio.length, "session")} already had no audio.`}
+          </p>
+        </Dialog>
+      );
+    case "delete":
+      return (
+        <Dialog
+          icon={Trash2}
+          eyebrow="Delete"
+          title={`Delete ${sessions}?`}
+          submit={`Delete ${sessions}`}
+          danger
+          onClose={onClose}
+          onSubmit={() => run(cards, (c) => ipc.deleteSession(c.id))}
+        >
+          <p className="text-[14px] text-ink-soft">
+            Deletes their files in your vault, the recordings and the notes. Remembered voices stay.
+            This can't be undone.
+          </p>
+          <ul className="-mt-2 max-h-32 overflow-y-auto text-[13px] text-ink-soft">
+            {cards.map((c) => (
+              <li key={c.id} className="truncate">
+                · {c.title}
+              </li>
+            ))}
+          </ul>
         </Dialog>
       );
   }
