@@ -1,12 +1,12 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|library|session|retranscribing|search|speakers|settings|update`.
+// `?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|library|session|retranscribing|search|speakers|actions|settings|update`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
 import { setAudioSource } from "../features/player/player";
 import { useTranscript } from "../features/transcript/store";
-import type { Segment, SessionCard, SessionDetail, Settings } from "../lib/ipc";
+import type { Segment, SessionCard, SessionDetail, Settings, TaskNotes } from "../lib/ipc";
 import { useNav, useUi } from "../lib/nav";
 
 const iso = (daysAgo: number, h: number, m: number) => {
@@ -163,7 +163,35 @@ const settings: Settings = {
   vocabulary: ["TKT", "Mariana", "Tomas", "Express Checkout"],
   detect_meetings: true,
   ignored_meeting_apps: ["Slack"],
+  user_name: "Sam Rivera",
 };
+
+/** Action items from several meetings, for `view=actions`. */
+const taskNotes: TaskNotes[] = [
+  { ...record, notes, has_audio: true },
+  {
+    ...cards[1],
+    has_audio: true,
+    notes: `## Action items
+- [ ] Me: share the transcription pipeline plan with Sarah (due today) [04:10]
+- [ ] Sarah: draft the growth goals for next quarter (next week) [12:30]`,
+  },
+  {
+    ...cards[2],
+    has_audio: false,
+    notes: `## Action items
+- [ ] David Kim: benchmark the cache memory footprint (due date not specified) [18:24]
+- [ ] Sam and Marcus Chen: review the read-replica failover plan (Friday) [27:08]
+- [x] Me: write up the caching decision [21:02]`,
+  },
+  {
+    ...cards[3],
+    has_audio: true,
+    notes: `## Action items
+- [ ] Lena Fischer: send the all-hands recording to new hires [05:40]
+- [ ] Omar Haddad: collect questions for the next Q&A [31:15]`,
+  },
+];
 
 /** A minute of silence (8 kHz, 8-bit) standing in for a session's recording. */
 function silentWav(seconds = 60) {
@@ -351,6 +379,22 @@ export function install() {
         ];
       case "api_keys":
         return { anthropic: false, gemini: false };
+      case "task_notes":
+        return structuredClone(taskNotes);
+      case "set_action_done": {
+        const { sessionId, line, done } = args as {
+          sessionId: string;
+          line: number;
+          done: boolean;
+        };
+        const source = taskNotes.find((t) => t.id === sessionId);
+        if (source) {
+          const lines = source.notes.split("\n");
+          lines[line] = lines[line].replace(/\[[ xX]\]/, done ? "[x]" : "[ ]");
+          source.notes = lines.join("\n");
+        }
+        return null;
+      }
       default:
         return null;
     }
@@ -367,6 +411,7 @@ export function install() {
     retranscribing: { kind: "session", id: record.id },
     search: { kind: "search", query: "rollback" },
     speakers: { kind: "speakers" },
+    actions: { kind: "actions" },
     settings: { kind: "settings" },
   } as const;
   useNav.setState({ view: nav[view as keyof typeof nav] ?? nav.live });

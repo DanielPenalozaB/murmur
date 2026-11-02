@@ -24,7 +24,7 @@ function useRefresh() {
   const queryClient = useQueryClient();
   return () =>
     Promise.all(
-      [["sessions"], ["folders"], ["session"], ["storage"]].map((queryKey) =>
+      [["sessions"], ["folders"], ["session"], ["storage"], ["tasks"]].map((queryKey) =>
         queryClient.invalidateQueries({ queryKey }),
       ),
     );

@@ -25,7 +25,7 @@ carry context between sessions:
 - Slow end-to-end check of speakers (needs models + macOS `say`):
   `cargo test --release -p murmur-stt --test speakers_pipeline -- --ignored`.
 - UI preview without the native app: with `pnpm dev` running, open
-  `http://127.0.0.1:1420/?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|session|retranscribing|library|search|speakers|settings|update`
+  `http://127.0.0.1:1420/?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|session|retranscribing|library|search|speakers|actions|settings|update`
   (Tauri IPC is mocked with sample data from `src/dev/preview.ts`; dev builds only).
 - Problems (warnings, errors, panics) are kept in `~/Library/Logs/dev.murmur.app/murmur.log`;
   read it first when the user reports a bad recording.

@@ -1,3 +1,4 @@
+mod actions;
 mod assistant;
 mod library;
 mod logging;
@@ -106,6 +107,8 @@ pub fn run() {
             assistant::ask,
             assistant::generate_notes,
             assistant::save_notes,
+            actions::task_notes,
+            actions::set_action_done,
             assistant::list_models,
             assistant::api_keys,
             assistant::set_api_key,

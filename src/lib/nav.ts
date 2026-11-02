@@ -3,9 +3,11 @@ import { create } from "zustand";
 export type View =
   | { kind: "live" }
   | { kind: "folder"; folder: string | null }
-  | { kind: "session"; id: string }
+  /** `at`: a moment (ms) to show in the transcript. */
+  | { kind: "session"; id: string; at?: number }
   | { kind: "search"; query: string }
   | { kind: "speakers" }
+  | { kind: "actions" }
   | { kind: "settings" };
 
 /** A breadcrumb; with `to`, clicking it goes there. */

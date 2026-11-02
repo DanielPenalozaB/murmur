@@ -95,6 +95,16 @@ being played and nothing extra is written to disk. Transcript timestamps play fr
 turn, citations move the player to their moment, and the turn being heard is marked. The
 player is hidden once a session's audio is deleted.
 
+## Action items
+
+The Action items screen lists every `- [ ] Who: task` line from the notes of all sessions
+(`Index::sessions_with_tasks`); the notes stay the source of truth. The UI reads the owners
+("Ana and Bo"), the `[mm:ss]` citation and a due date said in English or Spanish ("by
+Friday", "(due date: 5th)", "next week"), counted from the meeting's day
+(`src/features/actions/actions.ts`). Tasks for "Me", or for the name in Settings → Your
+name, are the user's. Ticking one rewrites that line in the session file and the index
+(`murmur_store::set_task`), refusing if the line is no longer a task.
+
 ## Updates
 
 The Tauri updater plugin reads `latest.json` from the latest GitHub release, checks the

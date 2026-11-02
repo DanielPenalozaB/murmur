@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Folder,
   Inbox,
+  ListChecks,
   Mic,
   Plus,
   Search,
@@ -13,6 +14,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { LogoMark } from "../../components/ui";
 import { type FolderNode, ipc } from "../../lib/ipc";
 import { useNav, useUi } from "../../lib/nav";
+import { useTasks } from "../actions/ActionsView";
+import { groupOf } from "../actions/actions";
 import { useSpeakerReview } from "../speakers/SpeakerReview";
 import { UpdateCard } from "../updates/UpdateCard";
 
@@ -64,6 +67,7 @@ function Item({
 }
 
 export function Sidebar({ recording }: { recording: boolean }) {
+  const myOpen = useTasks().tasks.filter((t) => t.mine && !t.done);
   const { view, go } = useNav();
   const setStartOpen = useUi((s) => s.setStartOpen);
   const queryClient = useQueryClient();
@@ -216,6 +220,17 @@ export function Sidebar({ recording }: { recording: boolean }) {
         )}
 
         <span className="eyebrow mt-5 mb-1 px-2.5">Intelligence</span>
+        <Item
+          icon={<ListChecks />}
+          label="Action items"
+          count={myOpen.length}
+          alert={{
+            count: myOpen.filter((t) => groupOf(t, new Date()) === "overdue").length,
+            title: "Your action items past their due date",
+          }}
+          active={view.kind === "actions"}
+          onClick={() => go({ kind: "actions" })}
+        />
         <Item
           icon={<UsersRound />}
           label="Speakers"

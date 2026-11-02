@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   SpellCheck,
   Type,
+  UserRound,
   UsersRound,
   X,
 } from "lucide-react";
@@ -497,6 +498,21 @@ export function SettingsView() {
                 </span>
               </div>
             </div>
+            <label className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1.5 text-[14px] font-semibold">
+                <UserRound className="size-4" /> Your name
+              </span>
+              <input
+                className="input bg-surface"
+                placeholder="As people call you in meetings, e.g. Ana Torres"
+                value={draft.user_name}
+                onChange={(e) => set({ user_name: e.target.value })}
+              />
+              <span className="text-[12px] text-ink-soft">
+                Action items given to this name, or to your first name, count as yours. Notes
+                already say “Me” for what you take on.
+              </span>
+            </label>
             <VocabularyField
               value={draft.vocabulary}
               onChange={(vocabulary) => set({ vocabulary })}

@@ -12,7 +12,7 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Avatar, TopBar } from "../../components/ui";
 import { formatDate, formatDuration, ipc, type SessionDetail } from "../../lib/ipc";
 import { folderCrumbs, useNav } from "../../lib/nav";
@@ -157,6 +157,7 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
       await ipc.saveNotes(session.id, notes);
       await queryClient.invalidateQueries({ queryKey: ["session", session.id] });
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      await queryClient.invalidateQueries({ queryKey: ["tasks"] });
       setDraft(null);
       setSaveError(null);
     } catch (e) {
@@ -272,7 +273,7 @@ function NotesTab({ session, onSeek }: { session: SessionDetail; onSeek: (ms: nu
   );
 }
 
-export function SessionView({ id }: { id: string }) {
+export function SessionView({ id, at }: { id: string; at?: number }) {
   const go = useNav((s) => s.go);
   const queryClient = useQueryClient();
   const session = useQuery({ queryKey: ["session", id], queryFn: () => ipc.getSession(id) });
@@ -306,6 +307,13 @@ export function SessionView({ id }: { id: string }) {
     await queryClient.invalidateQueries({ queryKey: ["session", id] });
   };
   const actions = s ? actionItems(s.notes) : [];
+  const loaded = !!s;
+
+  // Opened at a moment (e.g. from an action item): show it once the session is in.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per opening, not per render
+  useEffect(() => {
+    if (loaded && at !== undefined) onSeek(at);
+  }, [loaded, at]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

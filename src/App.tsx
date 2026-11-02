@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ActionsView } from "./features/actions/ActionsView";
 import { FolderView } from "./features/library/FolderView";
 import { SearchView } from "./features/library/SearchView";
 import { SessionView } from "./features/library/SessionView";
@@ -31,9 +32,10 @@ export default function App() {
         {setup && <ModelSetup missing={missing.data ?? []} />}
         {view.kind === "live" && !setup && <LiveView />}
         {view.kind === "folder" && <FolderView key={String(view.folder)} folder={view.folder} />}
-        {view.kind === "session" && <SessionView key={view.id} id={view.id} />}
+        {view.kind === "session" && <SessionView key={view.id} id={view.id} at={view.at} />}
         {view.kind === "search" && <SearchView key={view.query} query={view.query} />}
         {view.kind === "speakers" && <SpeakersView />}
+        {view.kind === "actions" && <ActionsView />}
         {view.kind === "settings" && <SettingsView />}
       </main>
     </div>

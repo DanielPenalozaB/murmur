@@ -18,7 +18,7 @@ pub use index::{
 pub use manage::{
     delete_folder, delete_session, move_folder, move_vault, relocate_session, replace_header, sync_vault,
 };
-pub use notes::{count_actions, excerpt};
+pub use notes::{count_actions, excerpt, set_task};
 pub use vault::{FolderNode, create_folder, list_folders, validate_folder};
 
 #[derive(Debug, thiserror::Error)]

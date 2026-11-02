@@ -12,12 +12,20 @@ Ollama, or your own Claude/Gemini API key.
 - **Live transcript** of your microphone and the call, including meetings that switch
   between languages, with answers to questions about the meeting as it happens.
 - **Notes when it ends:** summary, decisions, action items and open questions, each linked
-  to the moment it was said. Every session is a Markdown file in a folder you choose,
-  ready for Obsidian or any editor.
+  to the moment it was said, and the recording to play any moment again. Every session is
+  a Markdown file in a folder you choose, ready for Obsidian or any editor.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/notes-dark.png">
   <img alt="A meeting's notes with attendees, summary and decisions" src="docs/screenshots/notes-light.png">
+</picture>
+
+- **Action items from every meeting** in one list: yours first, overdue ones flagged, each
+  with what was said when it was agreed. Ticking one ticks it in that meeting's notes.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/actions-dark.png">
+  <img alt="Action items from several meetings, grouped by when they're due" src="docs/screenshots/actions-light.png">
 </picture>
 
 - **Speakers by voice:** name someone once and they're recognized in later meetings.

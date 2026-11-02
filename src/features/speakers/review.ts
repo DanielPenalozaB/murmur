@@ -44,7 +44,7 @@ export function describe(item: ReviewItem): { title: string; detail: string } {
 
 /** After a name changes, everything that shows speakers is out of date. */
 export function refreshSpeakers(queryClient: QueryClient, sessionId?: string) {
-  const keys = [["sessions"], ["voices"], ["voice-sessions"], ["speaker-review"]];
+  const keys = [["sessions"], ["voices"], ["voice-sessions"], ["speaker-review"], ["tasks"]];
   if (sessionId) keys.push(["session", sessionId]);
   return Promise.all(keys.map((queryKey) => queryClient.invalidateQueries({ queryKey })));
 }
