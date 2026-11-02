@@ -20,6 +20,9 @@ Ollama, or your own Claude/Gemini API key.
   <img alt="A meeting's notes with attendees, summary and decisions" src="docs/screenshots/notes-light.png">
 </picture>
 
+- **Never miss your name:** while recording, a small card (and a notification) shows when
+  someone on the call mentions you or asks you something. ⌃⌥M marks a moment and ⌃⌥N jots
+  a quick note without leaving the call; both land in your notes at that timestamp.
 - **Action items from every meeting** in one list: yours first, overdue ones flagged, each
   with what was said when it was agreed. Ticking one ticks it in that meeting's notes.
 

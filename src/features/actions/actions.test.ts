@@ -34,6 +34,8 @@ describe("owners", () => {
     expect(isMine("Ramón", "Ramon Diaz")).toBe(true);
     expect(isMine("Anabel", "Ana Torres")).toBe(false);
     expect(isMine("Ana", "")).toBe(false);
+    expect(isMine("Anita", "Ana Torres, Anita")).toBe(true);
+    expect(isMine("Ana", "Ana Torres, Anita")).toBe(true);
   });
 });
 

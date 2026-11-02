@@ -36,13 +36,13 @@ export function splitOwners(owner: string | null) {
     .filter(Boolean);
 }
 
-/** "Me", or the user's name: in full, or the first name on its own. */
+/** "Me", or the user's name ("Full Name, Nickname"): any entry, or the first name. */
 export function isMine(owner: string, userName: string) {
   const o = fold(owner);
   if (["me", "yo", "you"].includes(o)) return true;
-  const name = fold(userName);
-  if (!name) return false;
-  return o === name || o === name.split(/\s+/)[0];
+  const names = userName.split(",").map(fold).filter(Boolean);
+  if (names.length === 0) return false;
+  return names.includes(o) || o === names[0].split(/\s+/)[0];
 }
 
 const STAMP = /\s*[[(](\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*[,–-][^\])]*)?[\])]/g;

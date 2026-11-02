@@ -96,6 +96,19 @@ turn, citations move the player to their moment, and the turn being heard is mar
 player is hidden once a session's audio is deleted. "In transcript" scrolls to the turn being
 heard.
 
+## During calls
+
+While recording, `src-tauri/src/moments.rs` watches each final line from the call for the
+user's name (Settings → Your name: "Full Name, Nickname", plus the first name;
+`murmur_core::mention`, accent- and case-insensitive, whole words). A line that names
+them, or asks them something, is a moment: when Murmur isn't in front it shows a card over
+other apps (and a notification), at most one per 20 s. Global shortcuts, taken only while
+recording, add the other two kinds: ⌃⌥M marks the moment, ⌃⌥N opens a one-line note box
+timed to when it was pressed. Every moment is sent to the main window, which appends a
+timestamped line to the user's notes for the meeting (`- [12:04] Asked me: “…”`), so the
+notes expand it and keep it under "My notes"; the transcript and the player's timeline mark
+those lines (`momentsInNotes`).
+
 ## Action items
 
 The Action items screen lists every `- [ ] Who: task` line from the notes of all sessions

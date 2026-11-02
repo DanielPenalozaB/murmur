@@ -21,6 +21,7 @@ import { Markdown } from "../assistant/Markdown";
 import { NotesDocument } from "../assistant/NotesDocument";
 import { actionItems, toggleAction } from "../assistant/notes";
 import { useNotes } from "../assistant/store";
+import { momentsInNotes } from "../moments/moments";
 import { AudioPlayer } from "../player/AudioPlayer";
 import { usePlayer } from "../player/player";
 import { refreshSpeakers } from "../speakers/review";
@@ -349,6 +350,8 @@ export function SessionView({ id, at }: { id: string; at?: number }) {
     await queryClient.invalidateQueries({ queryKey: ["session", id] });
   };
   const actions = s ? actionItems(s.notes) : [];
+  // Mentions, marks and quick notes from the recording, kept under "My notes".
+  const marks = s ? momentsInNotes(s.notes) : [];
   const loaded = !!s;
 
   // Opened at a moment (e.g. from an action item): show it once the session is in.
@@ -525,6 +528,7 @@ export function SessionView({ id, at }: { id: string; at?: number }) {
                         onRename={rename}
                         onPlay={canPlay ? (ms) => usePlayer.getState().play(ms) : undefined}
                         playingAt={canPlay && (playing || position > 0) ? position : null}
+                        marks={marks}
                       />
                     </div>
                   )}
@@ -534,7 +538,12 @@ export function SessionView({ id, at }: { id: string; at?: number }) {
           </div>
           {s && canPlay && (
             <div className="mx-auto w-full max-w-[720px] pr-2">
-              <AudioPlayer sessionId={id} durationMs={s.duration_ms} onLocate={locate} />
+              <AudioPlayer
+                sessionId={id}
+                durationMs={s.duration_ms}
+                onLocate={locate}
+                marks={marks}
+              />
             </div>
           )}
         </div>

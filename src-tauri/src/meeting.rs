@@ -116,8 +116,8 @@ fn offer(app: &AppHandle, meeting: DetectedMeeting) {
     }
 }
 
-const POPUP: &str = "meeting";
-const POPUP_SIZE: (f64, f64) = (372.0, 56.0);
+pub(crate) const POPUP: &str = "meeting";
+pub(crate) const POPUP_SIZE: (f64, f64) = (372.0, 56.0);
 /// Collapsed, the card is just the logo: still there, out of the way.
 const POPUP_COLLAPSED: (f64, f64) = (56.0, 56.0);
 /// Gap to the screen's top-right corner.
@@ -149,7 +149,7 @@ fn show_popup(app: &AppHandle) -> tauri::Result<()> {
 }
 
 /// Where a card `width` wide sits, its right edge in the top-right corner.
-fn popup_position(app: &AppHandle, width: f64) -> tauri::Result<Option<(f64, f64)>> {
+pub(crate) fn popup_position(app: &AppHandle, width: f64) -> tauri::Result<Option<(f64, f64)>> {
     let Some(monitor) = app.primary_monitor()? else {
         return Ok(None);
     };

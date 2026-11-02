@@ -5,6 +5,7 @@ mod logging;
 mod manage;
 mod meeting;
 mod models;
+mod moments;
 mod permissions;
 mod playback;
 mod recording;
@@ -42,12 +43,15 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(moments::plugin())
         .register_asynchronous_uri_scheme_protocol(playback::SCHEME, playback::handle)
         .manage(recording::RecordingState::default())
         .manage(speakers::SpeakersState::default())
         .manage(retranscribe::RetranscribeState::default())
         .manage(models::DownloadState::default())
         .manage(meeting::MeetingState::default())
+        .manage(moments::MomentsState::default())
         .setup(|app| {
             let handle = app.handle();
             if let Ok(dir) = app.path().app_log_dir() {
@@ -129,6 +133,10 @@ pub fn run() {
             meeting::collapse_meeting_popup,
             meeting::record_meeting,
             meeting::stop_meeting,
+            moments::moment_card,
+            moments::dismiss_moment_card,
+            moments::open_moment,
+            moments::submit_quick_note,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

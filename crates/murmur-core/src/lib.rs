@@ -2,6 +2,9 @@
 
 use std::collections::HashMap;
 
+mod mention;
+pub use mention::{Mention, mention, name_variants};
+
 use serde::{Deserialize, Serialize};
 
 /// Milliseconds since the session started recording (pauses excluded).

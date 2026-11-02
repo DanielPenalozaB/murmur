@@ -12,6 +12,7 @@ export function AudioPlayer({
   durationMs,
   compact,
   onLocate,
+  marks = [],
 }: {
   sessionId: string;
   durationMs: number;
@@ -19,6 +20,8 @@ export function AudioPlayer({
   compact?: boolean;
   /** Shows the transcript where playback is. */
   onLocate?: (ms: number) => void;
+  /** Mentions, marks and notes: ticks on the timeline that jump there. */
+  marks?: { at: number; label: string }[];
 }) {
   const { playing, position, duration, rate, error } = usePlayer();
   const { load, unload, play, pause, seek, setRate } = usePlayer.getState();
@@ -69,16 +72,32 @@ export function AudioPlayer({
           </>
         )}
         <span className="w-12 shrink-0 text-right tabular-nums">{formatTimestamp(position)}</span>
-        <input
-          type="range"
-          className="h-1 min-w-0 flex-1 cursor-pointer accent-[var(--color-accent)]"
-          aria-label="Position in the recording"
-          min={0}
-          max={Math.max(1, total)}
-          step={1000}
-          value={Math.min(position, total)}
-          onChange={(e) => seek(Number(e.target.value))}
-        />
+        <div className="relative flex min-w-0 flex-1 items-center">
+          <input
+            type="range"
+            className="h-1 w-full cursor-pointer accent-[var(--color-accent)]"
+            aria-label="Position in the recording"
+            min={0}
+            max={Math.max(1, total)}
+            step={1000}
+            value={Math.min(position, total)}
+            onChange={(e) => seek(Number(e.target.value))}
+          />
+          {total > 0 &&
+            marks
+              .filter((m) => m.at <= total)
+              .map((m) => (
+                <button
+                  key={`${m.at}-${m.label}`}
+                  type="button"
+                  className="absolute -top-2.5 h-2 w-1 -translate-x-1/2 rounded-full bg-accent hover:scale-150"
+                  style={{ left: `${(m.at / total) * 100}%` }}
+                  title={`${formatTimestamp(m.at)} · ${m.label}`}
+                  aria-label={`Go to ${formatTimestamp(m.at)}: ${m.label}`}
+                  onClick={() => seek(m.at)}
+                />
+              ))}
+        </div>
         <span className="w-12 shrink-0 tabular-nums">{formatTimestamp(total)}</span>
         {onLocate && (playing || position > 0) && (
           <button
