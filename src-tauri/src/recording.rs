@@ -30,9 +30,10 @@ pub(crate) const MAX_LANGUAGES: usize = 4;
 pub struct RecordingState {
     active: Mutex<Option<ActiveSession>>,
     starting: AtomicBool,
-    /// Loaded at launch and kept for the app's lifetime.
+    /// Loaded when a recording or re-transcription starts and freed when it's done
+    /// (see `release_models`), so Whisper takes no memory or GPU the rest of the time.
     model: Mutex<Option<Arc<WhisperModel>>>,
-    /// Loaded at launch too; drafts and language ID share it.
+    /// The same; drafts and language ID share it.
     base_model: Mutex<Option<Arc<WhisperModel>>>,
     /// The current (or last) recording's transcript so far, for Ask during a meeting.
     live: Arc<Mutex<Vec<Segment>>>,
@@ -114,7 +115,23 @@ fn load_model(
     Ok(model)
 }
 
-/// The transcription model (turbo) and the fast model (base), loaded once.
+/// Lets go of the Whisper models: after a recording or re-transcription, and before the
+/// app exits. Whoever still uses one (the other of those two jobs) keeps it until it's
+/// done, and it's freed then. False when one is still in use.
+pub(crate) fn release_models(app: &AppHandle) -> bool {
+    let state = app.state::<RecordingState>();
+    let mut freed = true;
+    for slot in [&state.model, &state.base_model] {
+        if let Some(model) = slot.lock().unwrap().take() {
+            // Dropping the last reference frees it; another one means it's busy.
+            freed &= Arc::strong_count(&model) == 1;
+        }
+    }
+    freed
+}
+
+/// The transcription model (turbo) and the fast model (base), loaded on first use and
+/// shared until `release_models`.
 pub(crate) fn models(app: &AppHandle) -> Result<(Arc<WhisperModel>, Arc<WhisperModel>), String> {
     let state = app.state::<RecordingState>();
     Ok((
@@ -159,27 +176,6 @@ pub(crate) fn vocabulary(app: &AppHandle) -> Vec<String> {
         Err(e) => tracing::warn!("could not read remembered speakers: {e}"),
     }
     terms
-}
-
-/// Loads the models in the background at launch so the first Start is instant.
-pub fn preload_model(app: &AppHandle) {
-    let app = app.clone();
-    thread::spawn(move || {
-        let languages = app.state::<SettingsState>().0.lock().unwrap().languages.clone();
-        match transcribers(&app, &languages) {
-            // The first inference compiles GPU kernels (~2 s); do it now, not mid-meeting.
-            Ok((mut finals, mut drafts)) => {
-                let silence = SpeechChunk {
-                    channel: AudioChannel::Mic,
-                    start_ms: 0,
-                    samples: vec![0.0; murmur_audio::SAMPLE_RATE as usize],
-                };
-                let _ = drafts.transcribe(&silence);
-                let _ = finals.transcribe(&silence);
-            }
-            Err(e) => tracing::warn!("model preload failed: {e}"),
-        }
-    });
 }
 
 /// Loads the local LLM while the meeting starts, so the first question is answered
@@ -283,6 +279,10 @@ pub async fn start_recording(
             Ok(())
         })();
         state.starting.store(false, Ordering::Release);
+        if result.is_err() {
+            // Loaded for a recording that didn't start.
+            release_models(&app);
+        }
         result
     })
     .await
@@ -463,6 +463,8 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
             segments,
             speakers,
         });
+        // This worker's own references go when it returns, freeing the models.
+        release_models(&app);
     });
 }
 

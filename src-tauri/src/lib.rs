@@ -59,7 +59,6 @@ pub fn run() {
             }
             app.manage(settings::SettingsState(Mutex::new(settings::load(handle))));
             app.manage(library::LibraryState(Mutex::new(library::open_index(handle)?)));
-            recording::preload_model(handle);
             meeting::watch(handle);
             tray::install(handle)?;
             Ok(())
@@ -140,10 +139,27 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app, event| {
+        .run(|app, event| match event {
             // Clicking the Dock icon brings back a closed window.
-            if let tauri::RunEvent::Reopen { .. } = event {
-                tray::show_main(app);
-            }
+            tauri::RunEvent::Reopen { .. } => tray::show_main(app),
+            // Quit, the menu bar's Quit and the restart after an update all end here.
+            tauri::RunEvent::Exit => quit(app),
+            _ => {}
         });
+}
+
+/// whisper.cpp's Metal backend aborts the process in its own cleanup at exit when a
+/// model is still loaded, so free the models first. One still in use (quitting while
+/// recording or re-transcribing) can't be freed under the thread using it; then end the
+/// process without running that cleanup at all.
+fn quit(app: &tauri::AppHandle) {
+    if recording::release_models(app) {
+        return;
+    }
+    tracing::warn!("quitting while a Whisper model is in use; skipping native cleanup");
+    unsafe extern "C" {
+        fn _exit(status: i32) -> !;
+    }
+    // SAFETY: ends the process at once, as `exit` would, minus the C++ destructors.
+    unsafe { _exit(0) }
 }

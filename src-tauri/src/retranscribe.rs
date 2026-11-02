@@ -71,6 +71,7 @@ pub async fn retranscribe_session(
             return Err("another session is being re-transcribed".into());
         }
         let result = run(&app, &id, &languages, &on_event);
+        recording::release_models(&app);
         if let Err(e) = &result {
             tracing::error!(session = %id, "re-transcription failed: {e}");
         }
