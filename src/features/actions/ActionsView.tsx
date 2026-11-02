@@ -337,7 +337,8 @@ export function ActionsView() {
   );
   const pickedTasks = listed.filter((t) => picks?.has(t.key));
   const markAll = (done: boolean) =>
-    bulk.mutate({ tasks: pickedTasks, done }, { onSuccess: () => setPicks(new Set()) });
+    // Done: leave selecting, as the library does after a bulk change.
+    bulk.mutate({ tasks: pickedTasks, done }, { onSuccess: () => setPicks(null) });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -466,7 +467,8 @@ export function ActionsView() {
                   );
                 })}
 
-            {picks && (
+            {/* Nothing listed (e.g. every task just moved to Done): nothing to act on. */}
+            {picks && listed.length > 0 && (
               <div className="sticky bottom-4 z-10 mx-auto flex flex-col items-center gap-1">
                 {bulk.error && (
                   <p className="max-w-[640px] rounded-lg bg-accent-soft px-3 py-1 text-[12px] text-on-accent-soft">
