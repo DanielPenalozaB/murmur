@@ -114,6 +114,20 @@ fn load_model(
     Ok(model)
 }
 
+/// Frees the Whisper models before the app exits. False when one is still in use
+/// elsewhere (a recording or re-transcription holds it), so it can't be freed yet.
+pub(crate) fn release_models(app: &AppHandle) -> bool {
+    let state = app.state::<RecordingState>();
+    let mut freed = true;
+    for slot in [&state.model, &state.base_model] {
+        if let Some(model) = slot.lock().unwrap().take() {
+            // Dropping the last reference frees it; another one means it's busy.
+            freed &= Arc::strong_count(&model) == 1;
+        }
+    }
+    freed
+}
+
 /// The transcription model (turbo) and the fast model (base), loaded once.
 pub(crate) fn models(app: &AppHandle) -> Result<(Arc<WhisperModel>, Arc<WhisperModel>), String> {
     let state = app.state::<RecordingState>();
