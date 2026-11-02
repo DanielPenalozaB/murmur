@@ -39,9 +39,21 @@ export type Settings = {
   detect_meetings: boolean;
   /** Calling apps never offered for, as named in the offer. */
   ignored_meeting_apps: string[];
-  /** How people call the user in meetings; action items for that name are theirs. */
+  /** How people call the user in meetings ("Full Name, Nickname"): their action items,
+   * and the name listened for during calls. */
   user_name: string;
+  /** While recording, a card over other apps when the user's name is said. */
+  mention_card: boolean;
+  /** The same as a macOS notification. */
+  mention_notification: boolean;
+  /** Global shortcuts while recording, e.g. "Ctrl+Alt+M"; empty is off. */
+  mark_shortcut: string;
+  note_shortcut: string;
 };
+
+/** Something to come back to: the user's name on the call, a mark or a quick note. */
+export type MomentKind = "named" | "asked" | "marked" | "note";
+export type Moment = { kind: MomentKind; at: number; text: string };
 
 export type TrayAction = "start" | "pause" | "resume" | "mic-off" | "mic-on" | "stop";
 
@@ -222,6 +234,10 @@ export const ipc = {
   deleteSession: (id: string) => invoke<void>("delete_session", { id }),
   deleteSessionAudio: (id: string) => invoke<void>("delete_session_audio", { id }),
   restoreSessionFile: (id: string) => invoke<void>("restore_session_file", { id }),
+  momentCard: () => invoke<Moment | null>("moment_card"),
+  dismissMomentCard: () => invoke<void>("dismiss_moment_card"),
+  openMoment: () => invoke<void>("open_moment"),
+  submitQuickNote: (text: string) => invoke<void>("submit_quick_note", { text }),
   storageUsage: () => invoke<StorageUsage>("storage_usage"),
   syncVault: () => invoke<number>("sync_vault"),
   permissions: () => invoke<Permissions>("permissions"),
@@ -304,6 +320,13 @@ export const ipc = {
   /** The floating card's Record was clicked; the main window opens the dialog. */
   onRecordMeeting: (handler: (meeting: DetectedMeeting) => void) =>
     listen<DetectedMeeting>("record-meeting", (event) => handler(event.payload)),
+  onMoment: (handler: (moment: Moment) => void) =>
+    listen<Moment>("moment", (event) => handler(event.payload)),
+  /** The moment card's Open: show the live transcript at `at` ms. */
+  onShowMoment: (handler: (at: number) => void) =>
+    listen<number>("show-moment", (event) => handler(event.payload)),
+  onMomentCard: (handler: (moment: Moment) => void) =>
+    listen<Moment>("moment-card", (event) => handler(event.payload)),
 };
 
 function streamChannel(onEvent: (event: StreamEvent) => void) {

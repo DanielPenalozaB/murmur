@@ -124,6 +124,13 @@ pub(crate) fn models(app: &AppHandle) -> Result<(Arc<WhisperModel>, Arc<WhisperM
 }
 
 /// Whether a recording is running or starting.
+/// Recorded time so far (pauses excluded); `None` when not recording.
+pub(crate) fn elapsed_ms(app: &AppHandle) -> Option<u64> {
+    let state = app.state::<RecordingState>();
+    let active = state.active.lock().unwrap();
+    active.as_ref().map(|a| a.recorder.status().elapsed_ms)
+}
+
 pub(crate) fn is_recording(app: &AppHandle) -> bool {
     let state = app.state::<RecordingState>();
     state.active.lock().unwrap().is_some() || state.starting.load(Ordering::Acquire)
@@ -272,6 +279,7 @@ pub async fn start_recording(
                 languages: languages.clone(),
                 duration_tx,
             });
+            crate::moments::arm(&app);
             Ok(())
         })();
         state.starting.store(false, Ordering::Release);
@@ -392,6 +400,8 @@ fn spawn_transcription(app: AppHandle, mut w: Worker<impl Transcriber + 'static>
                             segment: segment.clone(),
                         });
                         w.live.lock().unwrap().push(segment.clone());
+                        let settings = app.state::<SettingsState>().0.lock().unwrap().clone();
+                        crate::moments::heard(&app, &segment, &settings);
                         segments.push(segment);
                     }
                 }
@@ -544,6 +554,7 @@ pub fn set_mic_muted(muted: bool, state: State<RecordingState>) -> Result<(), St
 #[tauri::command]
 pub async fn stop_recording(app: AppHandle) -> Result<Recording, String> {
     meeting::clear(&app);
+    crate::moments::disarm(&app);
     tauri::async_runtime::spawn_blocking(move || {
         let active = app.state::<RecordingState>().active.lock().unwrap().take();
         let ActiveSession {

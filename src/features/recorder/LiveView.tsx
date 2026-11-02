@@ -114,6 +114,13 @@ function EmptyState({ onStart, busy }: { onStart: () => void; busy: boolean }) {
   );
 }
 
+/** The newer of a citation click and a moment opened from the card. */
+function latestSeek(a: Seek | null, b: Seek | null) {
+  if (!a) return b;
+  if (!b) return a;
+  return a.nonce > b.nonce ? a : b;
+}
+
 export function LiveView() {
   const { status, start, togglePause, toggleMic, stop, starting, busy, error } = useRecorder();
   const t = useTranscript();
@@ -268,7 +275,12 @@ export function LiveView() {
               {t.segments.length === 0 && t.drafts.length === 0 && recording && (
                 <p className="text-ink-soft">Listening… lines appear as people speak.</p>
               )}
-              <TranscriptTurns segments={t.segments} seek={seek} speakers={t.speakers} />
+              <TranscriptTurns
+                segments={t.segments}
+                seek={latestSeek(seek, t.focus)}
+                speakers={t.speakers}
+                marks={t.moments.map((m) => ({ at: m.at, kind: m.kind, label: m.text }))}
+              />
 
               {[...t.drafts]
                 .sort((a, b) => a.start - b.start)

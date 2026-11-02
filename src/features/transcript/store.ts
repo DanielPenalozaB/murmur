@@ -1,5 +1,14 @@
 import { create } from "zustand";
-import type { Channel, Segment, SessionRecord, SpeakerInfo, TranscriptEvent } from "../../lib/ipc";
+import type {
+  Channel,
+  Moment,
+  Segment,
+  SessionRecord,
+  SpeakerInfo,
+  TranscriptEvent,
+} from "../../lib/ipc";
+import { appendMoment } from "../moments/moments";
+import type { Seek } from "./TranscriptTurns";
 
 /** Text of the utterance in progress, from the fast model. */
 export type Draft = { channel: Channel; start: number; text: string };
@@ -23,6 +32,12 @@ type TranscriptState = {
   /** What the user types in the Notes tab during the meeting. */
   userNotes: string;
   setUserNotes: (notes: string) => void;
+  /** Mentions, marks and quick notes so far; each is also a line in `userNotes`. */
+  moments: Moment[];
+  addMoment: (moment: Moment) => void;
+  /** A moment to scroll the live transcript to (from the moment card's Open). */
+  focus: Seek | null;
+  showMoment: (at: number) => void;
   begin: (title: string) => void;
   setFinishing: (finishing: boolean) => void;
   setSpeakers: (speakers: SpeakerInfo[]) => void;
@@ -41,6 +56,14 @@ export const useTranscript = create<TranscriptState>((set) => ({
   error: null,
   userNotes: "",
   setUserNotes: (userNotes) => set({ userNotes }),
+  moments: [],
+  addMoment: (moment) =>
+    set((s) => ({
+      moments: [...s.moments, moment],
+      userNotes: appendMoment(s.userNotes, moment),
+    })),
+  focus: null,
+  showMoment: (at) => set({ focus: { ms: at, nonce: Date.now() } }),
   begin: (title) =>
     set({
       title,
@@ -53,6 +76,8 @@ export const useTranscript = create<TranscriptState>((set) => ({
       saved: null,
       error: null,
       userNotes: "",
+      moments: [],
+      focus: null,
     }),
   setFinishing: (finishing) => set({ finishing }),
   setSpeakers: (speakers) => set({ speakers }),

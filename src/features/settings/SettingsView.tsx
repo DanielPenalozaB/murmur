@@ -1,8 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import {
+  AtSign,
   AudioLines,
+  Bell,
   BellOff,
+  Bookmark,
   Cloud,
   Cpu,
   Download,
@@ -10,6 +13,7 @@ import {
   FolderOpen,
   KeyRound,
   Languages,
+  NotebookPen,
   Radio,
   ShieldCheck,
   SpellCheck,
@@ -22,6 +26,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { PageHeader, Toggle, TopBar } from "../../components/ui";
 import { formatBytes, ipc, type Provider, type Settings } from "../../lib/ipc";
 import { folderCrumbs } from "../../lib/nav";
+import { shortcutFromEvent, shortcutLabel } from "../moments/moments";
 import { languageHint } from "../recorder/StartDialog";
 import { useRecorder } from "../recorder/useRecorder";
 import { installLabel, useInstall } from "../updates/updates";
@@ -317,6 +322,56 @@ function Choice({
 }
 
 /** Keeps what the user typed (a trailing comma, a blank line) while storing the list. */
+/** Click, then press the keys. Escape keeps the old one; Delete turns it off. */
+function ShortcutField({
+  icon,
+  title,
+  detail,
+  value,
+  onChange,
+}: {
+  icon: ReactNode;
+  title: string;
+  detail: string;
+  value: string;
+  onChange: (shortcut: string) => void;
+}) {
+  const [listening, setListening] = useState(false);
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl bg-sidebar p-4">
+      <span className="flex items-center gap-1.5 text-[14px] font-semibold">
+        {icon} {title}
+      </span>
+      <button
+        type="button"
+        className={`input bg-surface text-left font-semibold tracking-wide ${listening ? "border-accent/60 text-accent" : ""}`}
+        title="Click, then press the new shortcut"
+        onClick={() => setListening(true)}
+        onBlur={() => setListening(false)}
+        onKeyDown={(e) => {
+          if (!listening) return;
+          e.preventDefault();
+          if (e.key === "Escape") return setListening(false);
+          if (e.key === "Backspace" || e.key === "Delete") {
+            onChange("");
+            return setListening(false);
+          }
+          const shortcut = shortcutFromEvent(e.nativeEvent);
+          if (shortcut) {
+            onChange(shortcut);
+            setListening(false);
+          }
+        }}
+      >
+        {listening ? "Press the keys…" : shortcutLabel(value)}
+      </button>
+      <span className="text-[12px] text-ink-soft">
+        {detail} {listening && "Escape keeps it; Delete turns it off."}
+      </span>
+    </div>
+  );
+}
+
 function VocabularyField({
   value,
   onChange,
@@ -498,21 +553,6 @@ export function SettingsView() {
                 </span>
               </div>
             </div>
-            <label className="flex flex-col gap-1.5">
-              <span className="flex items-center gap-1.5 text-[14px] font-semibold">
-                <UserRound className="size-4" /> Your name
-              </span>
-              <input
-                className="input bg-surface"
-                placeholder="As people call you in meetings, e.g. Ana Torres"
-                value={draft.user_name}
-                onChange={(e) => set({ user_name: e.target.value })}
-              />
-              <span className="text-[12px] text-ink-soft">
-                Action items given to this name, or to your first name, count as yours. Notes
-                already say “Me” for what you take on.
-              </span>
-            </label>
             <VocabularyField
               value={draft.vocabulary}
               onChange={(vocabulary) => set({ vocabulary })}
@@ -576,6 +616,72 @@ export function SettingsView() {
 
           <Stage
             n={3}
+            title="During Calls"
+            description="Murmur listens for your name and lets you mark moments without leaving the call."
+            badge="While recording"
+          >
+            <label className="flex flex-col gap-1.5">
+              <span className="flex items-center gap-1.5 text-[14px] font-semibold">
+                <UserRound className="size-4" /> Your name
+              </span>
+              <input
+                className="input"
+                placeholder="As people call you in meetings, e.g. Ana Torres, Anita"
+                value={draft.user_name}
+                onChange={(e) => set({ user_name: e.target.value })}
+              />
+              <span className="text-[12px] text-ink-soft">
+                Your full name, then any nicknames, separated by commas. Murmur listens for it (and
+                your first name) on calls, and counts action items given to it as yours.
+              </span>
+            </label>
+            <Row
+              icon={<AtSign className="size-4" />}
+              title="Card when you're mentioned"
+              detail="When someone on the call says your name and Murmur isn't in front, a small card shows what they said."
+            >
+              <Toggle
+                checked={draft.mention_card}
+                onChange={(mention_card) => set({ mention_card })}
+                label="Show a card when you're mentioned"
+              />
+            </Row>
+            <Row
+              icon={<Bell className="size-4" />}
+              title="Notification when you're mentioned"
+              detail="The same as a macOS notification, so it shows on any screen and stays in Notification Center."
+            >
+              <Toggle
+                checked={draft.mention_notification}
+                onChange={(mention_notification) => set({ mention_notification })}
+                label="Send a notification when you're mentioned"
+              />
+            </Row>
+            <div className="grid grid-cols-2 gap-4">
+              <ShortcutField
+                icon={<Bookmark className="size-4" />}
+                title="Mark this moment"
+                detail="Flags it in the recording and your notes."
+                value={draft.mark_shortcut}
+                onChange={(mark_shortcut) => set({ mark_shortcut })}
+              />
+              <ShortcutField
+                icon={<NotebookPen className="size-4" />}
+                title="Quick note"
+                detail="A one-line box over the call, timed to when you pressed it."
+                value={draft.note_shortcut}
+                onChange={(note_shortcut) => set({ note_shortcut })}
+              />
+            </div>
+            {!draft.user_name.trim() && (
+              <p className="text-[12px] text-ink-soft">
+                Add your name above to be alerted when you're mentioned.
+              </p>
+            )}
+          </Stage>
+
+          <Stage
+            n={4}
             title="Markdown Output & Vault"
             description="Every session is a real file you own, readable in Obsidian or any editor."
             badge="CommonMark"
@@ -641,7 +747,7 @@ export function SettingsView() {
           </Stage>
 
           <Stage
-            n={4}
+            n={5}
             title="Updates"
             description="New versions come from Murmur's GitHub releases. Each one is checked against Murmur's signing key before it's installed."
           >

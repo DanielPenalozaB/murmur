@@ -1,12 +1,22 @@
-import { Pencil, Play } from "lucide-react";
+import { AtSign, Bookmark, NotebookPen, Pencil, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Segment, SpeakerInfo } from "../../lib/ipc";
+import type { MomentKind, Segment, SpeakerInfo } from "../../lib/ipc";
 import { formatTimestamp, groupIntoTurns, speakerLabel, turnAt } from "./group";
 
 /** A request to scroll to a moment; `nonce` lets the same timestamp be clicked twice. */
 export type Seek = { ms: number; nonce: number };
 
 export type Rename = (speakerId: string, name: string) => Promise<void>;
+
+/** A mention, mark or quick note pinned to the turn it happened in. */
+export type TurnMark = { at: number; kind: MomentKind; label?: string };
+
+const MARK_LOOK: Record<MomentKind, { icon: typeof AtSign; text: string }> = {
+  asked: { icon: AtSign, text: "You were asked" },
+  named: { icon: AtSign, text: "You were mentioned" },
+  marked: { icon: Bookmark, text: "Marked" },
+  note: { icon: NotebookPen, text: "Note" },
+};
 
 /** A speaker's name chip. With `onRename`, clicking it edits the name in place. */
 export function SpeakerChip({
@@ -107,6 +117,7 @@ export function TranscriptTurns({
   onRename,
   onPlay,
   playingAt,
+  marks = [],
 }: {
   segments: Segment[];
   seek?: Seek | null;
@@ -116,6 +127,7 @@ export function TranscriptTurns({
   onPlay?: (ms: number) => void;
   /** Where the recording is while it plays; that turn is marked. */
   playingAt?: number | null;
+  marks?: TurnMark[];
 }) {
   const turns = useMemo(() => groupIntoTurns(segments), [segments]);
   const refs = useRef<(HTMLDivElement | null)[]>([]);
@@ -133,6 +145,14 @@ export function TranscriptTurns({
   }, [seek]);
 
   const playing = playingAt == null ? -1 : turnAt(turns, playingAt);
+  const marksAt = useMemo(() => {
+    const byTurn = new Map<number, TurnMark[]>();
+    for (const m of marks) {
+      const i = Math.max(0, turnAt(turns, m.at + 999));
+      byTurn.set(i, [...(byTurn.get(i) ?? []), m]);
+    }
+    return byTurn;
+  }, [marks, turns]);
 
   return (
     <div className="flex flex-col gap-7">
@@ -147,15 +167,30 @@ export function TranscriptTurns({
             }}
             className={`-mx-4 flex flex-col gap-2 rounded-xl px-4 py-2 transition-colors duration-500 ${
               highlight === i ? "bg-accent-soft/50" : playing === i ? "bg-sidebar" : ""
-            }`}
+            } ${marksAt.has(i) ? "border-l-2 border-accent" : ""}`}
           >
-            <div className="flex items-center gap-3 text-[13px]">
+            <div className="flex flex-wrap items-center gap-3 text-[13px]">
               <SpeakerChip
                 label={label}
                 channel={turn.channel}
                 speakerId={turn.speaker}
                 onRename={onRename}
               />
+              {marksAt.get(i)?.map((m) => {
+                const look = MARK_LOOK[m.kind];
+                return (
+                  <span
+                    key={`${m.kind}-${m.at}`}
+                    className="chip order-last max-w-64 bg-accent-soft text-on-accent-soft"
+                    title={m.label}
+                  >
+                    <look.icon className="size-3 shrink-0" />
+                    <span className="truncate">
+                      {m.kind === "note" && m.label ? m.label : look.text}
+                    </span>
+                  </span>
+                );
+              })}
               {onPlay ? (
                 <button
                   type="button"

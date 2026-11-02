@@ -1,6 +1,6 @@
 // Dev-only: renders the UI in a plain browser with Tauri's IPC mocked, so screens can
 // be checked against the Stitch designs without the native app. Open the Vite URL with
-// `?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|library|session|retranscribing|search|speakers|actions|settings|update`.
+// `?preview&view=live|live-muted|live-silent|permissions|setup|empty|start|meeting|popup|popup-ended|popup-collapsed|moment|moment-marked|note|library|session|retranscribing|search|speakers|actions|settings|update`.
 import { mockIPC } from "@tauri-apps/api/mocks";
 import { useAsk } from "../features/assistant/store";
 import { useRetranscribe } from "../features/library/retranscribe";
@@ -88,7 +88,9 @@ const notes = `## Summary
 
 ## My notes
 
-check rollback owner`;
+check rollback owner
+- [00:26] Asked me: “Sam, can you check when the security review finishes?”
+- [00:43] Marked moment`;
 
 const speakers = [
   { id: "speaker_1", name: "Ana Torres", named: true },
@@ -179,6 +181,10 @@ const settings: Settings = {
   detect_meetings: true,
   ignored_meeting_apps: ["Slack"],
   user_name: "Sam Rivera",
+  mention_card: true,
+  mention_notification: true,
+  mark_shortcut: "Ctrl+Alt+M",
+  note_shortcut: "Ctrl+Alt+N",
 };
 
 /** Action items from several meetings, for `view=actions`. */
@@ -364,6 +370,13 @@ export function install() {
           : [];
       case "download_models":
         return new Promise(() => {});
+      case "moment_card":
+        if (view === "moment-marked") return { kind: "marked", at: 43_000, text: "" };
+        return {
+          kind: "asked",
+          at: 26_000,
+          text: "Sam, can you check with the security team when the review finishes? We need it before Friday.",
+        };
       case "detected_meeting":
         if (view === "popup-ended") return { app: "Microsoft Teams", browser: false, ended: true };
         return view === "meeting" || view === "popup" || view === "popup-collapsed"
@@ -455,7 +468,16 @@ export function install() {
           text: "And one more thing about the staging environment, we need to",
         },
       ],
-      userNotes: "check rollback owner\nrelease notes → product",
+      userNotes:
+        "check rollback owner\nrelease notes → product\n- [00:26] Asked me: “Sam, can you check when the security review finishes?”\n- [00:43] Marked moment\n",
+      moments: [
+        {
+          kind: "asked",
+          at: 26_000,
+          text: "Sam, can you check when the security review finishes?",
+        },
+        { kind: "marked", at: 43_000, text: "" },
+      ],
     });
     useAsk.setState({
       threads: {

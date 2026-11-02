@@ -33,8 +33,16 @@ pub struct Settings {
     /// Calling apps (as named in the offer, e.g. "Slack") never offered for.
     pub ignored_meeting_apps: Vec<String>,
     /// How people call the user in meetings, so action items given to that name
-    /// count as theirs (notes otherwise say "Me").
+    /// count as theirs (notes otherwise say "Me"). "Full Name, Nickname, …".
     pub user_name: String,
+    /// While recording, a card over other apps when someone on the call says the
+    /// user's name.
+    pub mention_card: bool,
+    /// The same as a macOS notification.
+    pub mention_notification: bool,
+    /// Global shortcuts while recording, e.g. "Ctrl+Alt+M"; empty turns one off.
+    pub mark_shortcut: String,
+    pub note_shortcut: String,
 }
 
 impl Default for Settings {
@@ -51,6 +59,10 @@ impl Default for Settings {
             detect_meetings: true,
             ignored_meeting_apps: Vec::new(),
             user_name: String::new(),
+            mention_card: true,
+            mention_notification: true,
+            mark_shortcut: "Ctrl+Alt+M".into(),
+            note_shortcut: "Ctrl+Alt+N".into(),
         }
     }
 }
@@ -142,12 +154,19 @@ pub fn update_settings(
         return Err("the vault folder must be an absolute path".into());
     }
     murmur_store::validate_folder(&settings.last_folder).map_err(|e| e.to_string())?;
+    let mark = crate::moments::parse_shortcut(&settings.mark_shortcut)?;
+    if mark.is_some() && mark == crate::moments::parse_shortcut(&settings.note_shortcut)? {
+        return Err("the two shortcuts must be different".into());
+    }
     let old_vault = state.0.lock().unwrap().vault_path.clone();
     if settings.vault_path != old_vault {
         move_vault(&app, &old_vault, &settings.vault_path)?;
     }
     save(&app, &settings)?;
     *state.0.lock().unwrap() = settings;
+    if recording::is_recording(&app) {
+        crate::moments::arm(&app);
+    }
     Ok(())
 }
 
