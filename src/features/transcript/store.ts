@@ -13,7 +13,14 @@ import type { Seek } from "./TranscriptTurns";
 /** Text of the utterance in progress, from the fast model. */
 export type Draft = { channel: Channel; start: number; text: string };
 
+/** What a meeting leaves for its notes once it's saved. */
+export type Leftover = { userNotes: string; transcribed: boolean };
+
 type TranscriptState = {
+  /** Which recording the live view shows; each Start begins a new one. */
+  run: number;
+  /** Meetings that were still being saved when the next one started, by run. */
+  ended: Record<number, Leftover>;
   title: string;
   segments: Segment[];
   /** At most one per channel; replaced by final segments when the speaker pauses. */
@@ -38,13 +45,19 @@ type TranscriptState = {
   /** A moment to scroll the live transcript to (from the moment card's Open). */
   focus: Seek | null;
   showMoment: (at: number) => void;
-  begin: (title: string) => void;
+  /** Starts a new recording's live view and returns its run. */
+  begin: (title: string) => number;
   setFinishing: (finishing: boolean) => void;
   setSpeakers: (speakers: SpeakerInfo[]) => void;
-  handle: (event: TranscriptEvent) => void;
+  /** An event from the recording `run`; once another has started, it no longer shows. */
+  handle: (event: TranscriptEvent, run?: number) => void;
+  /** The user's notes and whether anything was transcribed, for run's saved session. */
+  leftover: (run: number) => Leftover;
 };
 
-export const useTranscript = create<TranscriptState>((set) => ({
+export const useTranscript = create<TranscriptState>((set, get) => ({
+  run: 0,
+  ended: {},
   title: "",
   segments: [],
   drafts: [],
@@ -64,8 +77,15 @@ export const useTranscript = create<TranscriptState>((set) => ({
     })),
   focus: null,
   showMoment: (at) => set({ focus: { ms: at, nonce: Date.now() } }),
-  begin: (title) =>
+  begin: (title) => {
+    const s = get();
+    const run = s.run + 1;
     set({
+      run,
+      // Back-to-back meetings: the last one is still being saved and needs its notes.
+      ended: s.finishing
+        ? { ...s.ended, [s.run]: { userNotes: s.userNotes, transcribed: s.segments.length > 0 } }
+        : s.ended,
       title,
       segments: [],
       drafts: [],
@@ -78,10 +98,13 @@ export const useTranscript = create<TranscriptState>((set) => ({
       userNotes: "",
       moments: [],
       focus: null,
-    }),
+    });
+    return run;
+  },
   setFinishing: (finishing) => set({ finishing }),
   setSpeakers: (speakers) => set({ speakers }),
-  handle: (event) => {
+  handle: (event, run) => {
+    if (run !== undefined && run !== get().run) return;
     switch (event.kind) {
       case "segment":
         set((s) => ({ segments: [...s.segments, event.segment] }));
@@ -122,5 +145,12 @@ export const useTranscript = create<TranscriptState>((set) => ({
         }));
         break;
     }
+  },
+  leftover: (run) => {
+    const s = get();
+    if (run === s.run) return { userNotes: s.userNotes, transcribed: s.segments.length > 0 };
+    const { [run]: left, ...rest } = s.ended;
+    set({ ended: rest });
+    return left ?? { userNotes: "", transcribed: false };
   },
 }));

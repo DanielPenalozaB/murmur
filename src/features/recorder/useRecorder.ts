@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ipc, type NewSession, type Recording } from "../../lib/ipc";
 import { useAsk, useNotes } from "../assistant/store";
-import { useTranscript } from "../transcript/store";
+import { type Leftover, useTranscript } from "../transcript/store";
 
 const STATUS_KEY = ["recording-status"];
 
 /** Writes notes (or at least keeps the user's own) once the session file exists. */
-async function afterSave(sessionId: string) {
-  const { userNotes, segments } = useTranscript.getState();
+async function afterSave(sessionId: string, { userNotes, transcribed }: Leftover) {
   const settings = await ipc.getSettings();
-  if (settings.auto_notes && segments.length > 0) {
+  if (settings.auto_notes && transcribed) {
     useNotes.getState().generate(sessionId, userNotes);
   } else if (userNotes.trim()) {
     await ipc.saveNotes(sessionId, `## My notes\n\n${userNotes.trim()}`);
@@ -29,15 +28,17 @@ export function useRecorder() {
 
   const start = useMutation({
     mutationFn: (session: NewSession) => {
-      transcript.begin(session.title);
+      const run = transcript.begin(session.title);
       useAsk.getState().clear("live");
       return ipc.startRecording(session, (event) => {
-        useTranscript.getState().handle(event);
+        // A meeting can finish saving after the next one started; it stays out of that view.
+        useTranscript.getState().handle(event, run);
         // A saved session changes folder counts and lists.
         if (event.kind === "finished") {
           queryClient.invalidateQueries({ queryKey: ["folders"] });
           queryClient.invalidateQueries({ queryKey: ["sessions"] });
-          if (event.session) void afterSave(event.session.id);
+          const left = useTranscript.getState().leftover(run);
+          if (event.session) void afterSave(event.session.id, left);
         }
       });
     },

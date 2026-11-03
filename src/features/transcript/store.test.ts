@@ -50,4 +50,33 @@ describe("live transcript store", () => {
     expect(state.speakers).toHaveLength(1);
     expect(state.status).toBeNull();
   });
+
+  it("keeps a meeting that's still saving out of the next one", () => {
+    const first = useTranscript.getState().run;
+    const { handle, setUserNotes, setFinishing } = useTranscript.getState();
+    handle({ kind: "segment", segment: seg(0, "system", "First meeting.") }, first);
+    setUserNotes("- [00:01] Marked moment");
+    setFinishing(true);
+
+    const second = useTranscript.getState().begin("Next");
+    handle({ kind: "segment", segment: seg(0, "system", "Second meeting.") }, second);
+    handle(
+      {
+        kind: "finished",
+        session: null,
+        segments: [seg(0, "system", "First meeting.")],
+        speakers: [],
+      },
+      first,
+    );
+    const live = useTranscript.getState();
+    expect(live.segments.map((s) => s.text)).toEqual(["Second meeting."]);
+    expect(live.finishing).toBe(false);
+    expect(live.leftover(first)).toEqual({
+      userNotes: "- [00:01] Marked moment",
+      transcribed: true,
+    });
+    expect(useTranscript.getState().ended).toEqual({});
+    expect(live.leftover(second)).toEqual({ userNotes: "", transcribed: true });
+  });
 });
