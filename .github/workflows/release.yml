@@ -81,7 +81,7 @@ jobs:
           pnpm tauri build --bundles app --config "$config"
       - name: Package .dmg and .zip
         run: ./scripts/package-release.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: murmur-macos
           path: target/release/dist/*
@@ -95,7 +95,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: murmur-macos
           path: dist
